@@ -1,0 +1,7 @@
+{
+  "name": "ATCEM - Gestión de Comerciantes",
+  "description": "Plataforma integral para la gestión de comerciantes, zonas de trabajo y control financiero con estética Bento UI y Neobrutalismo Suave.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
