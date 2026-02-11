@@ -18,6 +18,7 @@ export interface ZoneAssignment {
   zone_id: string;
   meters: number;
   calculated_cost: number;
+  work_day: string;
 }
 
 export interface Abono {
@@ -31,9 +32,13 @@ export interface Abono {
 export interface Merchant {
   id: string;
   full_name: string;
+  first_name: string;
+  last_name_paterno: string;
+  last_name_materno: string;
+  giro: string;
   phone: string;
-  profile_photo: string; // Base64 compressed
-  ine_photo: string;     // Base64 compressed
+  profile_photo: string;
+  ine_photo: string;
   total_debt: number;
   balance: number;
   status: 'PENDING' | 'PAID' | 'PARTIAL';

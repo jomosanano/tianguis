@@ -1,5 +1,5 @@
 
-export const compressImage = (base64Str: string, maxWidth = 800, quality = 0.7): Promise<string> => {
+export const compressImage = (base64Str: string, maxWidth = 400, quality = 0.6): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.src = base64Str;
@@ -16,8 +16,15 @@ export const compressImage = (base64Str: string, maxWidth = 800, quality = 0.7):
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      ctx?.drawImage(img, 0, 0, width, height);
+      if (!ctx) {
+        resolve(base64Str);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
       resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => {
+      resolve(base64Str);
     };
   });
 };
