@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, UserPlus, Map, LogOut, Menu, X, ShieldCheck, Loader2 } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Map, LogOut, Menu, X, ShieldCheck, Loader2, UserCog, Settings as SettingsIcon } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { MerchantForm } from './components/MerchantForm';
 import { MerchantList } from './components/MerchantList';
 import { ZoneManagement } from './components/ZoneManagement';
+import { StaffManagement } from './components/StaffManagement';
+import { Settings } from './components/Settings';
 import { Auth } from './components/Auth';
 import { dataService } from './services/dataService';
 import { supabase } from './services/supabase';
@@ -12,13 +14,14 @@ import { User, Merchant, Abono } from './types';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'directory' | 'register' | 'zones'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'directory' | 'register' | 'zones' | 'staff' | 'settings'>('dashboard');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const [editingMerchant, setEditingMerchant] = useState<Merchant | null>(null);
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [recentAbonos, setRecentAbonos] = useState<Abono[]>([]);
+  const [systemLogo, setSystemLogo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,14 +46,16 @@ const App: React.FC = () => {
   const fetchEssentialData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [user, stats, abonos] = await Promise.all([
+      const [user, stats, abonos, settings] = await Promise.all([
         dataService.getCurrentUser(),
         dataService.getDashboardStats(),
-        dataService.getAbonos(10)
+        dataService.getAbonos(10),
+        dataService.getSystemSettings()
       ]);
       setCurrentUser(user);
       setDashboardStats(stats);
       setRecentAbonos(abonos);
+      setSystemLogo(settings.logo_url);
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -78,9 +83,11 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
         <div className="relative">
           <Loader2 className="w-16 h-16 text-blue-500 animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center font-black text-xl italic text-white">A</div>
+          <div className="absolute inset-0 flex items-center justify-center font-black text-xl italic text-white">
+            {systemLogo ? <img src={systemLogo} className="w-8 h-8 object-contain" /> : 'A'}
+          </div>
         </div>
-        <p className="font-black text-slate-500 uppercase tracking-[0.3em] mt-6 animate-pulse text-xs text-center">Optimizando rendimiento ATCEM...</p>
+        <p className="font-black text-slate-500 uppercase tracking-[0.3em] mt-6 animate-pulse text-xs text-center">Iniciando Sistemas ATCEM v2.5...</p>
       </div>
     );
   }
@@ -109,8 +116,8 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-950 flex flex-col lg:flex-row overflow-hidden">
       <div className="lg:hidden safe-top flex items-center justify-between p-4 bg-slate-900 border-b-2 border-black z-50">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 border-2 border-black rounded-xl flex items-center justify-center neobrutalism-shadow">
-            <span className="font-black text-xl italic text-white">A</span>
+          <div className="w-10 h-10 bg-blue-600 border-2 border-black rounded-xl flex items-center justify-center neobrutalism-shadow overflow-hidden p-1.5">
+            {systemLogo ? <img src={systemLogo} className="w-full h-full object-contain" /> : <span className="font-black text-xl italic text-white">A</span>}
           </div>
           <span className="font-black text-xl tracking-tighter uppercase">ATCEM</span>
         </div>
@@ -134,29 +141,40 @@ const App: React.FC = () => {
         </div>
 
         <div className="hidden lg:flex items-center gap-3 mb-10">
-          <div className="w-12 h-12 bg-blue-600 border-2 border-black rounded-2xl flex items-center justify-center neobrutalism-shadow">
-            <span className="font-black text-2xl italic text-white">A</span>
+          <div className="w-12 h-12 bg-blue-600 border-2 border-black rounded-2xl flex items-center justify-center neobrutalism-shadow overflow-hidden p-2">
+            {systemLogo ? <img src={systemLogo} className="w-full h-full object-contain" /> : <span className="font-black text-2xl italic text-white">A</span>}
           </div>
           <div>
             <h1 className="font-black text-2xl tracking-tighter leading-none">ATCEM</h1>
-            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Enterprise v2.5</p>
+            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Enterprise Suite</p>
           </div>
         </div>
 
         <nav className="flex-1 space-y-3">
           <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <NavItem id="directory" icon={Users} label="Directorio" />
-          {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SECRETARY') && (
+          
+          {currentUser?.role === 'ADMIN' && (
+            <NavItem id="staff" icon={UserCog} label="Personal" />
+          )}
+
+          {(currentUser?.role === 'ADMIN' || currentUser?.role === 'DELEGATE') && (
+            <NavItem id="register" icon={UserPlus} label={editingMerchant ? "Editando" : "Registrar"} />
+          )}
+          
+          {currentUser?.role === 'ADMIN' && (
             <>
-              <NavItem id="register" icon={UserPlus} label={editingMerchant ? "Editando" : "Registrar"} />
               <NavItem id="zones" icon={Map} label="Zonas" />
+              <NavItem id="settings" icon={SettingsIcon} label="Configuraciones" />
             </>
           )}
         </nav>
 
         <div className="mt-auto pt-6 border-t-2 border-slate-800 space-y-4">
           <div className="flex items-center gap-3 p-4 bg-slate-800 border-2 border-black rounded-2xl neobrutalism-shadow">
-            <div className="w-10 h-10 bg-amber-500 rounded-full border-2 border-black flex items-center justify-center font-black flex-shrink-0 shadow-inner">
+            <div className={`w-10 h-10 rounded-full border-2 border-black flex items-center justify-center font-black flex-shrink-0 shadow-inner ${
+              currentUser?.role === 'ADMIN' ? 'bg-amber-500' : currentUser?.role === 'SECRETARY' ? 'bg-purple-600' : 'bg-orange-500'
+            }`}>
               {currentUser?.name?.charAt(0) || '?'}
             </div>
             <div className="overflow-hidden">
@@ -167,24 +185,23 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
-          <button onClick={logout} className="w-full flex items-center justify-center gap-3 p-4 rounded-2xl border-2 border-rose-500 text-rose-500 font-black uppercase tracking-widest text-xs hover:bg-rose-500 hover:text-white transition-all">
+          <button onClick={logout} className="w-full flex items-center justify-center gap-3 p-4 rounded-2xl border-2 border-rose-500 text-rose-500 font-black uppercase tracking-widest text-xs hover:bg-rose-500 hover:text-white transition-all active:scale-95">
             <LogOut className="w-4 h-4" />
-            Cerrar
+            Cerrar Sesión
           </button>
         </div>
       </aside>
 
       <main className="flex-1 relative h-[calc(100vh-4.5rem)] lg:h-screen overflow-y-auto custom-scrollbar p-4 sm:p-6 lg:p-12 pb-32 lg:pb-12">
         <div className="max-w-7xl mx-auto w-full">
-          {loading ? (
+          {!session ? (
             <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
               <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
-              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Sincronizando con el servidor...</p>
             </div>
           ) : (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-              {activeTab === 'dashboard' && <Dashboard stats={dashboardStats} abonos={recentAbonos} />}
-              {activeTab === 'directory' && <MerchantList role={currentUser?.role || 'DELEGATE'} onRefresh={(silent) => fetchEssentialData(silent === true)} onEdit={handleEditMerchant} />}
+              {activeTab === 'dashboard' && <Dashboard stats={dashboardStats} abonos={recentAbonos} userRole={currentUser?.role} />}
+              {activeTab === 'directory' && <MerchantList user={currentUser} systemLogo={systemLogo} onRefresh={(silent) => fetchEssentialData(silent === true)} onEdit={handleEditMerchant} />}
               {activeTab === 'register' && (
                 <MerchantForm 
                   initialData={editingMerchant}
@@ -193,6 +210,8 @@ const App: React.FC = () => {
                 />
               )}
               {activeTab === 'zones' && <ZoneManagement />}
+              {activeTab === 'staff' && <StaffManagement />}
+              {activeTab === 'settings' && <Settings currentLogo={systemLogo} onUpdateLogo={(url) => setSystemLogo(url)} />}
             </div>
           )}
         </div>
@@ -205,15 +224,15 @@ const App: React.FC = () => {
         <button onClick={() => setActiveTab('directory')} className={`p-4 rounded-2xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
           <Users className="w-6 h-6" />
         </button>
-        {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SECRETARY') && (
-          <>
-            <button onClick={() => { setEditingMerchant(null); setActiveTab('register'); }} className={`p-4 rounded-2xl transition-all ${activeTab === 'register' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
-              <UserPlus className="w-6 h-6" />
-            </button>
-            <button onClick={() => setActiveTab('zones')} className={`p-4 rounded-2xl transition-all ${activeTab === 'zones' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
-              <Map className="w-6 h-6" />
-            </button>
-          </>
+        {(currentUser?.role === 'ADMIN' || currentUser?.role === 'DELEGATE') && (
+          <button onClick={() => setActiveTab('register')} className={`p-4 rounded-2xl transition-all ${activeTab === 'register' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
+            <UserPlus className="w-6 h-6" />
+          </button>
+        )}
+        {currentUser?.role === 'ADMIN' && (
+          <button onClick={() => setActiveTab('settings')} className={`p-4 rounded-2xl transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
+            <SettingsIcon className="w-6 h-6" />
+          </button>
         )}
       </nav>
 

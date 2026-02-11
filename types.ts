@@ -6,6 +6,7 @@ export interface User {
   email: string;
   role: Role;
   name: string;
+  assigned_zones?: string[]; // UUIDs de zonas permitidas
 }
 
 export interface Zone {
@@ -19,6 +20,9 @@ export interface ZoneAssignment {
   meters: number;
   calculated_cost: number;
   work_day: string;
+  zones?: {
+    name: string;
+  };
 }
 
 export interface Abono {
@@ -44,9 +48,4 @@ export interface Merchant {
   status: 'PENDING' | 'PAID' | 'PARTIAL';
   assignments: ZoneAssignment[];
   created_at: string;
-}
-
-export interface AppConfig {
-  company_name: string;
-  currency: string;
 }

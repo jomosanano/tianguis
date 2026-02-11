@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Loader2, User as UserIcon, MapPin, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Save, Plus, Trash2, Loader2, User as UserIcon, MapPin, AlertCircle, CheckCircle2, CalendarDays } from 'lucide-react';
 import { ImagePicker } from './ImagePicker';
 import { supabase, uploadImage } from '../services/supabase';
 import { dataService } from '../services/dataService';
-import { Zone, ZoneAssignment, Merchant } from '../types';
+import { Zone, ZoneAssignment, Merchant, User } from '../types';
 
 interface MerchantFormProps {
   onSuccess: () => void;
@@ -12,10 +12,23 @@ interface MerchantFormProps {
   initialData?: Merchant | null;
 }
 
+const WORK_DAYS = [
+  'Diario',
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+  'Domingo',
+  'Fines de Semana'
+];
+
 export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel, initialData }) => {
   const [zones, setZones] = useState<Zone[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   const [formData, setFormData] = useState({
     first_name: initialData?.first_name || '',
@@ -30,12 +43,28 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
   const [assignments, setAssignments] = useState<ZoneAssignment[]>(initialData?.assignments || []);
 
   useEffect(() => {
-    dataService.getZones().then(setZones);
+    const init = async () => {
+      const [zonesData, userData] = await Promise.all([
+        dataService.getZones(),
+        dataService.getCurrentUser()
+      ]);
+      
+      setCurrentUser(userData);
+      
+      // Filtrar zonas si es delegado
+      if (userData?.role === 'DELEGATE') {
+        const allowedIds = userData.assigned_zones || [];
+        setZones(zonesData.filter(z => allowedIds.includes(z.id)));
+      } else {
+        setZones(zonesData);
+      }
+    };
+    init();
   }, []);
 
   const addAssignment = () => {
     if (zones.length === 0) {
-      alert("Primero debes crear al menos una zona.");
+      alert("No tienes zonas asignadas para registrar.");
       return;
     }
     setAssignments([...assignments, { 
@@ -70,8 +99,7 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Sesión expirada.");
 
-      // Manejo de imágenes: solo subir si son nuevas (Base64)
-      const uploadIfNeeded = async (current: string, original: string | undefined) => {
+      const uploadIfNeeded = async (current: string) => {
         if (current && current.startsWith('data:image')) {
           return await uploadImage(current, 'profiles');
         }
@@ -79,8 +107,8 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
       };
 
       const [finalProfileUrl, finalIneUrl] = await Promise.all([
-        uploadIfNeeded(formData.profile_photo, initialData?.profile_photo),
-        uploadIfNeeded(formData.ine_photo, initialData?.ine_photo)
+        uploadIfNeeded(formData.profile_photo),
+        uploadIfNeeded(formData.ine_photo)
       ]);
 
       const merchantPayload = {
@@ -97,17 +125,13 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
       let merchantId = initialData?.id;
 
       if (initialData) {
-        // Actualizar existente
         const { error: mError } = await supabase
           .from('merchants')
           .update(merchantPayload)
           .eq('id', initialData.id);
         if (mError) throw mError;
-
-        // Limpiar asignaciones viejas y poner nuevas
         await supabase.from('zone_assignments').delete().eq('merchant_id', initialData.id);
       } else {
-        // Crear nuevo
         const { data: merchant, error: mError } = await supabase
           .from('merchants')
           .insert(merchantPayload)
@@ -130,7 +154,7 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
 
       onSuccess();
     } catch (err: any) {
-      console.error("Error en proceso:", err);
+      console.error(err);
       setErrorStatus(err.message || "Error al procesar registro.");
     } finally {
       setLoading(false);
@@ -192,65 +216,57 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4">
-            <div className="relative">
-              <ImagePicker label="Foto de Perfil" onCapture={img => setFormData({ ...formData, profile_photo: img })} />
-              {formData.profile_photo && (
-                <div className="absolute top-10 right-2 bg-emerald-500 p-1.5 rounded-full border-2 border-black z-10">
-                  <CheckCircle2 className="w-4 h-4 text-white" />
-                </div>
-              )}
-            </div>
-            <div className="relative">
-              <ImagePicker label="Identificación (INE)" onCapture={img => setFormData({ ...formData, ine_photo: img })} />
-              {formData.ine_photo && (
-                <div className="absolute top-10 right-2 bg-emerald-500 p-1.5 rounded-full border-2 border-black z-10">
-                  <CheckCircle2 className="w-4 h-4 text-white" />
-                </div>
-              )}
-            </div>
+            <ImagePicker label="Foto de Perfil" onCapture={img => setFormData({ ...formData, profile_photo: img })} />
+            <ImagePicker label="Identificación (INE)" onCapture={img => setFormData({ ...formData, ine_photo: img })} />
           </div>
         </div>
 
         <div className="lg:col-span-5 space-y-6 bg-slate-800 p-8 rounded-[2.5rem] border-2 border-black neobrutalism-shadow flex flex-col">
           <div className="flex justify-between items-center">
             <h3 className="text-xl font-black uppercase flex items-center gap-3 text-blue-400">
-              <MapPin className="w-5 h-5" /> Ubicación Territ.
+              <MapPin className="w-5 h-5" /> Jurisdicción de Zonas
             </h3>
             <button type="button" onClick={addAssignment} className="p-2 bg-blue-600 border-2 border-black rounded-xl neobrutalism-shadow active:scale-90 transition-transform">
               <Plus className="w-5 h-5 text-white" />
             </button>
           </div>
 
-          <div className="flex-1 space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+          <div className="flex-1 space-y-4 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
             {assignments.map((a, index) => (
               <div key={index} className="p-4 bg-slate-900 border-2 border-slate-700 rounded-2xl space-y-4 relative">
-                <button type="button" onClick={() => removeAssignment(index)} className="absolute -top-2 -right-2 p-1.5 bg-rose-600 border-2 border-black rounded-lg">
+                <button type="button" onClick={() => removeAssignment(index)} className="absolute -top-2 -right-2 p-1.5 bg-rose-600 border-2 border-black rounded-lg z-10">
                   <Trash2 className="w-3.5 h-3.5 text-white" />
                 </button>
+                
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Zona</span>
+                    <span className="text-[10px] font-black text-slate-500 uppercase">Zona</span>
                     <select value={a.zone_id} onChange={e => updateAssignment(index, 'zone_id', e.target.value)} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-2 text-xs font-bold text-white outline-none">
                       {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Metros</span>
+                    <span className="text-[10px] font-black text-slate-500 uppercase">Metros</span>
                     <input type="number" step="0.1" value={a.meters} onChange={e => updateAssignment(index, 'meters', parseFloat(e.target.value))} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-2 text-xs font-bold text-white outline-none" />
                   </div>
                 </div>
-                <div className="space-y-1">
-                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Costo Pactado ($)</span>
-                   <input type="number" step="10" value={a.calculated_cost} onChange={e => updateAssignment(index, 'calculated_cost', parseFloat(e.target.value))} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 text-lg font-black text-emerald-400 outline-none" />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
+                      <CalendarDays className="w-3 h-3" /> Día
+                    </span>
+                    <select value={a.work_day} onChange={e => updateAssignment(index, 'work_day', e.target.value)} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-2 text-xs font-bold text-white outline-none">
+                      {WORK_DAYS.map(day => <option key={day} value={day}>{day}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-black text-slate-500 uppercase">Costo ($)</span>
+                    <input type="number" step="10" value={a.calculated_cost} onChange={e => updateAssignment(index, 'calculated_cost', parseFloat(e.target.value))} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-2 text-sm font-black text-emerald-400 outline-none" />
+                  </div>
                 </div>
               </div>
             ))}
-            {assignments.length === 0 && (
-              <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-700 rounded-2xl p-8 text-slate-500 font-bold text-center">
-                <MapPin className="w-8 h-8 mb-2 opacity-20" />
-                <p className="text-xs uppercase tracking-widest">Sin ubicación asignada</p>
-              </div>
-            )}
           </div>
 
           <div className="pt-6 border-t-2 border-slate-700 mt-auto">

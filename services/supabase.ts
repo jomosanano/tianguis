@@ -1,10 +1,10 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://iyqcqtqjoqstrheqlusq.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5cWNxdHFqb3FzdHJoZXFsdXNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3MzU4MzMsImV4cCI6MjA4NjMxMTgzM30.TrqVM8RYQunBaN4EJaZOhkRnSi3DRVmhMMSnkdSm1Vg';
+export const SUPABASE_URL = 'https://iyqcqtqjoqstrheqlusq.supabase.co';
+export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5cWNxdHFqb3FzdHJoZXFsdXNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3MzU4MzMsImV4cCI6MjA4NjMxMTgzM30.TrqVM8RYQunBaN4EJaZOhkRnSi3DRVmhMMSnkdSm1Vg';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export const uploadImage = async (base64: string, path: string) => {
   if (!base64 || !base64.startsWith('data:image')) return null;
