@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [recentAbonos, setRecentAbonos] = useState<Abono[]>([]);
   const [systemLogo, setSystemLogo] = useState<string | null>(null);
+  const [delegatesCanCollect, setDelegatesCanCollect] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,6 +57,7 @@ const App: React.FC = () => {
       setDashboardStats(stats);
       setRecentAbonos(abonos);
       setSystemLogo(settings.logo_url);
+      setDelegatesCanCollect(settings.delegates_can_collect ?? false);
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -158,7 +160,7 @@ const App: React.FC = () => {
             <NavItem id="staff" icon={UserCog} label="Personal" />
           )}
 
-          {(currentUser?.role === 'ADMIN' || currentUser?.role === 'DELEGATE') && (
+          {currentUser?.role === 'ADMIN' && (
             <NavItem id="register" icon={UserPlus} label={editingMerchant ? "Editando" : "Registrar"} />
           )}
           
@@ -201,7 +203,15 @@ const App: React.FC = () => {
           ) : (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
               {activeTab === 'dashboard' && <Dashboard stats={dashboardStats} abonos={recentAbonos} userRole={currentUser?.role} />}
-              {activeTab === 'directory' && <MerchantList user={currentUser} systemLogo={systemLogo} onRefresh={(silent) => fetchEssentialData(silent === true)} onEdit={handleEditMerchant} />}
+              {activeTab === 'directory' && (
+                <MerchantList 
+                  user={currentUser} 
+                  systemLogo={systemLogo} 
+                  onRefresh={(silent) => fetchEssentialData(silent === true)} 
+                  onEdit={handleEditMerchant}
+                  delegatesCanCollect={delegatesCanCollect}
+                />
+              )}
               {activeTab === 'register' && (
                 <MerchantForm 
                   initialData={editingMerchant}
@@ -211,7 +221,14 @@ const App: React.FC = () => {
               )}
               {activeTab === 'zones' && <ZoneManagement />}
               {activeTab === 'staff' && <StaffManagement />}
-              {activeTab === 'settings' && <Settings currentLogo={systemLogo} onUpdateLogo={(url) => setSystemLogo(url)} />}
+              {activeTab === 'settings' && (
+                <Settings 
+                  currentLogo={systemLogo} 
+                  onUpdateLogo={(url) => setSystemLogo(url)} 
+                  onUpdateCollectSetting={(val) => setDelegatesCanCollect(val)}
+                  initialCollectSetting={delegatesCanCollect}
+                />
+              )}
             </div>
           )}
         </div>
@@ -224,7 +241,7 @@ const App: React.FC = () => {
         <button onClick={() => setActiveTab('directory')} className={`p-4 rounded-2xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
           <Users className="w-6 h-6" />
         </button>
-        {(currentUser?.role === 'ADMIN' || currentUser?.role === 'DELEGATE') && (
+        {currentUser?.role === 'ADMIN' && (
           <button onClick={() => setActiveTab('register')} className={`p-4 rounded-2xl transition-all ${activeTab === 'register' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
             <UserPlus className="w-6 h-6" />
           </button>

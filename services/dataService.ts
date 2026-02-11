@@ -6,20 +6,62 @@ export const dataService = {
   // Configuración del sistema
   getSystemSettings: async () => {
     const { data, error } = await supabase.from('system_settings').select('*').eq('id', 'global_config').single();
-    if (error) return { logo_url: null };
+    if (error) return { logo_url: null, delegates_can_collect: false };
     return data;
   },
 
-  updateSystemSettings: async (updates: { logo_url?: string }) => {
+  updateSystemSettings: async (updates: { logo_url?: string | null, delegates_can_collect?: boolean }) => {
     const { error } = await supabase.from('system_settings').update({ ...updates, updated_at: new Date() }).eq('id', 'global_config');
     if (error) throw error;
   },
 
-  // Búsqueda con filtros de ROL integrados
+  // Logística masiva con incremento de contador
+  batchUpdateMerchantsLogistics: async (ids: string[], received: boolean) => {
+    // Si marcamos como recibido, incrementamos el contador
+    const { data: currentMerchants } = await supabase.from('merchants').select('id, delivery_count').in('id', ids);
+    
+    const updates = currentMerchants?.map(m => ({
+      id: m.id,
+      admin_received: received,
+      admin_received_at: received ? new Date().toISOString() : null,
+      delivery_count: received ? (Number(m.delivery_count || 0) + 1) : m.delivery_count
+    }));
+
+    if (updates && updates.length > 0) {
+      for (const update of updates) {
+        await supabase.from('merchants').update(update).eq('id', update.id);
+      }
+    }
+  },
+
+  // Obtener todos los comerciantes para exportación
+  getAllMerchantsForExport: async () => {
+    const { data, error } = await supabase
+      .from('merchants')
+      .select(`
+        *,
+        zone_assignments(
+          *,
+          zones(name)
+        )
+      `)
+      .order('full_name', { ascending: true });
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Búsqueda con filtros de ROL integrados y SEGURIDAD REFORZADA
   getMerchantsPaginated: async (page: number, pageSize: number, search: string = '', user: User | null) => {
+    // SEGURIDAD: Si no hay usuario, no devolvemos nada
+    if (!user) {
+      return { data: [], totalCount: 0 };
+    }
+
     const from = page * pageSize;
     const to = from + pageSize - 1;
 
+    // Usamos !inner para asegurar que el filtro por zone_id afecte a la fila principal (merchant)
     let query = supabase
       .from('merchants')
       .select(`
@@ -31,13 +73,19 @@ export const dataService = {
       `, { count: 'exact' });
 
     // REGLA SECRETARIA: Solo puede ver comerciantes liquidados (status = 'PAID')
-    if (user?.role === 'SECRETARY') {
+    if (user.role === 'SECRETARY') {
       query = query.eq('status', 'PAID');
     }
 
-    // REGLA DELEGADO: Solo sus zonas
-    if (user?.role === 'DELEGATE' && user.assigned_zones && user.assigned_zones.length > 0) {
-      query = query.in('zone_assignments.zone_id', user.assigned_zones);
+    // REGLA DELEGADO: Solo sus zonas asignadas (FILTRO CRÍTICO)
+    if (user.role === 'DELEGATE') {
+      if (user.assigned_zones && user.assigned_zones.length > 0) {
+        // Filtramos sobre la tabla relacionada. Supabase/PostgREST usará el inner join para restringir los merchants.
+        query = query.in('zone_assignments.zone_id', user.assigned_zones);
+      } else {
+        // Si es delegado pero no tiene zonas, devolvemos un ID inexistente para asegurar 0 resultados
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+      }
     }
 
     if (search) {
@@ -157,7 +205,7 @@ export const dataService = {
       email: user.email!,
       name: profile?.full_name || user.email!.split('@')[0],
       role: (profile?.role as Role) || 'DELEGATE',
-      assigned_zones: profile?.assigned_zones || []
+      assigned_zones: Array.isArray(profile?.assigned_zones) ? profile.assigned_zones : []
     };
   }
 };

@@ -16,7 +16,9 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole }) => {
   const percentage = stats?.total_debt > 0 ? (stats.total_collected / stats.total_debt) * 100 : 0;
-  const isSecretary = userRole === 'SECRETARY';
+  
+  // Definimos roles restringidos para métricas financieras sensibles
+  const isRestricted = userRole === 'SECRETARY' || userRole === 'DELEGATE';
 
   const StatCard = ({ icon: Icon, color, label, value }: any) => (
     <div className={`${color} p-6 sm:p-8 rounded-[2rem] border-2 border-black neobrutalism-shadow text-white flex flex-col justify-between transition-transform hover:scale-[1.02]`}>
@@ -44,7 +46,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole })
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <StatCard icon={Users} color="bg-blue-600" label="Comerciantes" value={stats?.total_merchants || 0} />
-        {!isSecretary && (
+        {!isRestricted && (
           <>
             <StatCard icon={DollarSign} color="bg-emerald-500" label="Recaudado" value={`$${(stats?.total_collected || 0).toLocaleString()}`} />
             <StatCard icon={TrendingDown} color="bg-rose-500" label="Pendiente" value={`$${(stats?.total_balance || 0).toLocaleString()}`} />
@@ -53,7 +55,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole })
         )}
       </div>
 
-      {!isSecretary && (
+      {!isRestricted && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
           <div className="lg:col-span-2 bg-slate-800 p-6 sm:p-10 rounded-[2.5rem] border-2 border-black neobrutalism-shadow">
             <div className="flex items-center justify-between mb-8">
@@ -96,6 +98,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole })
                 Sistema optimizado para manejar más de 5,000 registros con latencia mínima.
               </p>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {isRestricted && (
+        <div className="bg-slate-800 p-10 rounded-[2.5rem] border-2 border-black neobrutalism-shadow flex flex-col items-center justify-center text-center gap-6 mt-8">
+          <div className="bg-blue-600/10 p-6 rounded-full border-2 border-blue-500/30">
+            <Users className="w-16 h-16 text-blue-500" />
+          </div>
+          <div>
+            <h3 className="text-2xl font-black uppercase mb-2">Estado del Censo</h3>
+            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest leading-relaxed max-w-lg">
+              Estás visualizando el conteo general de comerciantes registrados. 
+              El detalle financiero está reservado para el área de administración general.
+            </p>
           </div>
         </div>
       )}

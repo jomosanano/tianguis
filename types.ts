@@ -48,4 +48,7 @@ export interface Merchant {
   status: 'PENDING' | 'PAID' | 'PARTIAL';
   assignments: ZoneAssignment[];
   created_at: string;
+  admin_received?: boolean;
+  admin_received_at?: string;
+  delivery_count?: number; // Contador de veces que se ha enviado al admin
 }
