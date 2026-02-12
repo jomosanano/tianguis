@@ -25,7 +25,7 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch(err => console.error("Error al reproducir video:", err));
     }
-  }, [stream, loadingCamera]); // Reacciona cuando el stream cambia o la carga termina
+  }, [stream, loadingCamera]);
 
   const updateDevices = async () => {
     try {
@@ -53,7 +53,6 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
     setMode('camera');
 
     try {
-      // Detener tracks anteriores si existen
       if (stream) stream.getTracks().forEach(t => t.stop());
 
       let currentDevices = devices;
@@ -61,13 +60,25 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
         currentDevices = await updateDevices();
       }
 
-      const indexToUse = deviceIndex !== null ? deviceIndex : currentDeviceIndex;
+      let indexToUse = deviceIndex;
+
+      // Si es el inicio (index null), intentar buscar la cámara trasera en la lista
+      if (indexToUse === null) {
+        const backCameraIndex = currentDevices.findIndex(d => 
+          d.label.toLowerCase().includes('back') || 
+          d.label.toLowerCase().includes('trasera') || 
+          d.label.toLowerCase().includes('rear') ||
+          d.label.toLowerCase().includes('environment')
+        );
+        indexToUse = backCameraIndex !== -1 ? backCameraIndex : 0;
+        setCurrentDeviceIndex(indexToUse);
+      }
 
       const constraints: MediaStreamConstraints = {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          // Si tenemos dispositivos, usamos el ID, si no, intentamos "environment"
+          // Si tenemos dispositivos identificados, usamos el ID. Si no, forzamos environment.
           ...(currentDevices.length > 0 
             ? { deviceId: { exact: currentDevices[indexToUse].deviceId } }
             : { facingMode: 'environment' })
@@ -77,12 +88,23 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
       const newStream = await navigator.mediaDevices.getUserMedia(constraints);
       setStream(newStream);
       
-      // Actualizar lista después de tener permisos para ver etiquetas reales
-      await updateDevices();
+      // Actualizar lista para obtener etiquetas reales tras el permiso
+      const updated = await updateDevices();
+      
+      // Si fue inicio automático, re-verificar cuál es la cámara trasera ahora que tenemos etiquetas
+      if (deviceIndex === null && updated.length > 0) {
+        const activeTrack = newStream.getVideoTracks()[0];
+        const settings = activeTrack.getSettings();
+        const realIdx = updated.findIndex(d => d.deviceId === settings.deviceId);
+        if (realIdx !== -1) setCurrentDeviceIndex(realIdx);
+      }
+
     } catch (err) {
-      console.warn("Fallo al iniciar cámara específica, intentando genérica...", err);
+      console.warn("Fallo al iniciar cámara específica, intentando con facingMode: environment...", err);
       try {
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment' } 
+        });
         setStream(fallbackStream);
         await updateDevices();
       } catch (fallbackErr) {
@@ -90,7 +112,6 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
         setMode('idle');
       }
     } finally {
-      // Pequeño delay para asegurar que el elemento de video se renderice antes de quitar el loader
       setTimeout(() => setLoadingCamera(false), 300);
     }
   };
@@ -145,7 +166,7 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
           <div className="absolute inset-0 flex flex-col sm:flex-row">
             <button 
               type="button"
-              onClick={() => startCamera()}
+              onClick={() => startCamera(null)}
               className="flex-1 flex flex-col items-center justify-center gap-3 hover:bg-slate-800 transition-all border-b-2 sm:border-b-0 sm:border-r-4 border-black group/btn active:bg-slate-700"
             >
               <div className="bg-blue-600 p-4 rounded-2xl border-2 border-black group-hover/btn:scale-110 transition-transform">
@@ -178,7 +199,7 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
             {loadingCamera && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-slate-900 text-blue-500">
                 <Loader2 className="w-10 h-10 animate-spin" />
-                <span className="font-black text-[10px] uppercase tracking-widest">Inicializando Lente...</span>
+                <span className="font-black text-[10px] uppercase tracking-widest">Iniciando Lente Trasero...</span>
               </div>
             )}
             
