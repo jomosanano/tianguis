@@ -1,6 +1,6 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, Upload, RefreshCw, CheckCircle, Image as ImageIcon, RotateCcw, SwitchCamera, Loader2 } from 'lucide-react';
+import { Camera, Upload, RefreshCw, CheckCircle, RotateCcw, SwitchCamera, Loader2 } from 'lucide-react';
 import { compressImage } from '../services/imageUtils';
 
 interface ImagePickerProps {
@@ -16,18 +16,26 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
   const [mode, setMode] = useState<'idle' | 'camera'>('idle');
   const [loadingCamera, setLoadingCamera] = useState(false);
   
-  // Gestión de múltiples cámaras
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [currentDeviceIndex, setCurrentDeviceIndex] = useState(0);
 
-  // Enumerar cámaras disponibles
+  // Efecto para vincular el stream al video cuando el elemento esté listo
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(err => console.error("Error al reproducir video:", err));
+    }
+  }, [stream, loadingCamera]); // Reacciona cuando el stream cambia o la carga termina
+
   const updateDevices = async () => {
     try {
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = allDevices.filter(device => device.kind === 'videoinput');
       setDevices(videoDevices);
+      return videoDevices;
     } catch (err) {
       console.error("Error enumerating devices:", err);
+      return [];
     }
   };
 
@@ -40,51 +48,50 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
     setLoadingCamera(false);
   };
 
-  const startCamera = async (deviceIndex: number = 0) => {
-    stopCamera();
+  const startCamera = async (deviceIndex: number | null = null) => {
     setLoadingCamera(true);
     setMode('camera');
 
     try {
-      // Intentar primero con el deviceId específico si tenemos la lista
-      let constraints: MediaStreamConstraints = {
+      // Detener tracks anteriores si existen
+      if (stream) stream.getTracks().forEach(t => t.stop());
+
+      let currentDevices = devices;
+      if (currentDevices.length === 0) {
+        currentDevices = await updateDevices();
+      }
+
+      const indexToUse = deviceIndex !== null ? deviceIndex : currentDeviceIndex;
+
+      const constraints: MediaStreamConstraints = {
         video: {
           width: { ideal: 1280 },
-          height: { ideal: 720 }
+          height: { ideal: 720 },
+          // Si tenemos dispositivos, usamos el ID, si no, intentamos "environment"
+          ...(currentDevices.length > 0 
+            ? { deviceId: { exact: currentDevices[indexToUse].deviceId } }
+            : { facingMode: 'environment' })
         }
       };
 
-      if (devices.length > 0) {
-        (constraints.video as MediaTrackConstraints).deviceId = { exact: devices[deviceIndex].deviceId };
-      } else {
-        // Si no hay lista aún, intentar trasera por defecto
-        (constraints.video as MediaTrackConstraints).facingMode = 'environment';
-      }
-
       const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      // Una vez que tenemos permiso, actualizamos la lista de cámaras (para tener etiquetas y IDs reales)
-      await updateDevices();
-      
       setStream(newStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = newStream;
-      }
+      
+      // Actualizar lista después de tener permisos para ver etiquetas reales
+      await updateDevices();
     } catch (err) {
-      console.warn("Fallo al iniciar cámara con configuración ideal, intentando genérica...", err);
+      console.warn("Fallo al iniciar cámara específica, intentando genérica...", err);
       try {
-        // Fallback genérico si falla lo anterior
         const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
         setStream(fallbackStream);
-        if (videoRef.current) videoRef.current.srcObject = fallbackStream;
         await updateDevices();
       } catch (fallbackErr) {
-        console.error("Error crítico de cámara:", fallbackErr);
-        alert("No se pudo acceder a ninguna cámara. Verifica los permisos de tu navegador.");
+        alert("Error de acceso a cámara: Verifica los permisos en tu navegador.");
         setMode('idle');
       }
     } finally {
-      setLoadingCamera(false);
+      // Pequeño delay para asegurar que el elemento de video se renderice antes de quitar el loader
+      setTimeout(() => setLoadingCamera(false), 300);
     }
   };
 
@@ -123,7 +130,6 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
     reader.readAsDataURL(file);
   };
 
-  // Limpieza al desmontar
   useEffect(() => {
     return () => {
       if (stream) stream.getTracks().forEach(t => t.stop());
@@ -139,7 +145,7 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
           <div className="absolute inset-0 flex flex-col sm:flex-row">
             <button 
               type="button"
-              onClick={() => startCamera(currentDeviceIndex)}
+              onClick={() => startCamera()}
               className="flex-1 flex flex-col items-center justify-center gap-3 hover:bg-slate-800 transition-all border-b-2 sm:border-b-0 sm:border-r-4 border-black group/btn active:bg-slate-700"
             >
               <div className="bg-blue-600 p-4 rounded-2xl border-2 border-black group-hover/btn:scale-110 transition-transform">
@@ -169,45 +175,50 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
 
         {mode === 'camera' && (
           <div className="w-full h-full relative bg-black">
-            {loadingCamera ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-blue-500">
+            {loadingCamera && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-slate-900 text-blue-500">
                 <Loader2 className="w-10 h-10 animate-spin" />
-                <span className="font-black text-[10px] uppercase tracking-widest">Iniciando Lente...</span>
+                <span className="font-black text-[10px] uppercase tracking-widest">Inicializando Lente...</span>
               </div>
-            ) : (
-              <>
-                <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                <div className="absolute inset-0 pointer-events-none border-2 border-white/20 m-4 rounded-2xl" />
-                
-                <div className="absolute bottom-6 left-0 right-0 flex justify-center items-center gap-6 px-6">
-                  <button 
-                    type="button"
-                    onClick={stopCamera}
-                    className="p-4 bg-slate-900/80 backdrop-blur-md border-2 border-white/20 rounded-2xl text-white active:scale-90 transition-transform"
-                  >
-                    <RotateCcw className="w-6 h-6" />
-                  </button>
-
-                  <button 
-                    type="button"
-                    onClick={captureFrame}
-                    className="w-20 h-20 bg-white border-4 border-black rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
-                  >
-                    <div className="w-14 h-14 border-4 border-slate-200 rounded-full" />
-                  </button>
-
-                  {devices.length > 1 && (
-                    <button 
-                      type="button"
-                      onClick={switchCamera}
-                      className="p-4 bg-blue-600/80 backdrop-blur-md border-2 border-white/20 rounded-2xl text-white active:scale-90 transition-transform"
-                    >
-                      <SwitchCamera className="w-6 h-6" />
-                    </button>
-                  )}
-                </div>
-              </>
             )}
+            
+            <video 
+              ref={videoRef} 
+              autoPlay 
+              playsInline 
+              muted 
+              className={`w-full h-full object-cover transition-opacity duration-300 ${loadingCamera ? 'opacity-0' : 'opacity-100'}`} 
+            />
+            
+            <div className="absolute inset-0 pointer-events-none border-2 border-white/10 m-4 rounded-2xl" />
+            
+            <div className="absolute bottom-6 left-0 right-0 flex justify-center items-center gap-6 px-6">
+              <button 
+                type="button"
+                onClick={stopCamera}
+                className="p-4 bg-slate-900/80 backdrop-blur-md border-2 border-white/20 rounded-2xl text-white active:scale-90 transition-transform"
+              >
+                <RotateCcw className="w-6 h-6" />
+              </button>
+
+              <button 
+                type="button"
+                onClick={captureFrame}
+                className="w-20 h-20 bg-white border-4 border-black rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
+              >
+                <div className="w-14 h-14 border-4 border-slate-200 rounded-full" />
+              </button>
+
+              {devices.length > 1 && (
+                <button 
+                  type="button"
+                  onClick={switchCamera}
+                  className="p-4 bg-blue-600/80 backdrop-blur-md border-2 border-white/20 rounded-2xl text-white active:scale-90 transition-transform"
+                >
+                  <SwitchCamera className="w-6 h-6" />
+                </button>
+              )}
+            </div>
           </div>
         )}
 
