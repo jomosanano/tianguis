@@ -45,6 +45,7 @@ export interface Merchant {
   ine_photo: string;
   total_debt: number;
   balance: number;
+  note?: string;
   status: 'PENDING' | 'PAID' | 'PARTIAL';
   assignments: ZoneAssignment[];
   created_at: string;

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Loader2, User as UserIcon, MapPin, AlertCircle, CheckCircle2, CalendarDays } from 'lucide-react';
+import { Save, Plus, Trash2, Loader2, User as UserIcon, MapPin, AlertCircle, CheckCircle2, CalendarDays, StickyNote } from 'lucide-react';
 import { ImagePicker } from './ImagePicker';
 import { supabase, uploadImage } from '../services/supabase';
 import { dataService } from '../services/dataService';
@@ -37,7 +37,8 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
     giro: initialData?.giro || '',
     phone: initialData?.phone || '',
     profile_photo: initialData?.profile_photo || '',
-    ine_photo: initialData?.ine_photo || ''
+    ine_photo: initialData?.ine_photo || '',
+    note: initialData?.note || ''
   });
 
   const [assignments, setAssignments] = useState<ZoneAssignment[]>(initialData?.assignments || []);
@@ -51,7 +52,6 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
       
       setCurrentUser(userData);
       
-      // Filtrar zonas si es delegado
       if (userData?.role === 'DELEGATE') {
         const allowedIds = userData.assigned_zones || [];
         setZones(zonesData.filter(z => allowedIds.includes(z.id)));
@@ -117,6 +117,7 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
         last_name_materno: formData.last_name_materno.trim(),
         giro: formData.giro.trim(),
         phone: formData.phone.trim(),
+        note: formData.note.trim(),
         profile_photo_url: finalProfileUrl || null,
         ine_photo_url: finalIneUrl || null,
         created_by: user.id
@@ -213,6 +214,18 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
               <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Teléfono</label>
               <input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl p-4 font-bold outline-none focus:border-blue-500" />
             </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
+              <StickyNote className="w-3 h-3 text-yellow-500" /> Nota de Expediente (Opcional)
+            </label>
+            <textarea 
+              value={formData.note} 
+              onChange={e => setFormData({ ...formData, note: e.target.value })} 
+              className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl p-4 font-bold outline-none focus:border-yellow-500 min-h-[80px]" 
+              placeholder="Ej: Pendiente de entregar copia física de INE..."
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4">

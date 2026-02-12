@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, ChevronRight, User, DollarSign, Loader2, Briefcase, Filter, ArrowUp, Edit2, Trash2, Calendar, Clock, AlertTriangle, X, Send, CheckCircle2, Receipt, IdCard, RefreshCw, MapPin, ShieldCheck, Shield, CheckSquare, Square, PackageCheck, History, TrendingUp, MessageSquare, Ban, PieChart, Download } from 'lucide-react';
+import { Search, ChevronRight, User, DollarSign, Loader2, Briefcase, Filter, ArrowUp, Edit2, Trash2, Calendar, Clock, AlertTriangle, X, Send, CheckCircle2, Receipt, IdCard, RefreshCw, MapPin, ShieldCheck, Shield, CheckSquare, Square, PackageCheck, History, TrendingUp, MessageSquare, Ban, PieChart, Download, StickyNote } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { dataService } from '../services/dataService';
 import { Merchant, Abono, Role, User as UserType } from '../types';
@@ -27,6 +27,9 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
   const [totalRecords, setTotalRecords] = useState(0);
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   
+  // Estado para Tooltip de Notas
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+
   // Estados para Selección Masiva
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -59,7 +62,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
     return false;
   };
 
-  // Ajustar filtro por defecto para secretaria
   useEffect(() => {
     if (isSecretary) {
       setActiveFilter('LIQUIDATED');
@@ -114,7 +116,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
     return () => observer.disconnect();
   }, [handleObserver]);
 
-  // Lógica de Filtrado Local para la vista Bento
   const filteredMerchants = useMemo(() => {
     return merchants.filter(m => {
       const balance = Number(m.balance);
@@ -130,7 +131,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
     });
   }, [merchants, activeFilter]);
 
-  // Contadores para los badges de los filtros
   const filterStats = useMemo(() => {
     return {
       ALL: merchants.length,
@@ -149,7 +149,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
       newSelected.delete(id);
       setSelectedIds(newSelected);
     } else {
-      // Advertencia de Re-entrega para Secretaria
       if (isSecretary && merchant.admin_received) {
         setReDeliveryConfirmMerchant(merchant);
       } else {
@@ -210,7 +209,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      // Reemplazar espacios por guiones bajos para el nombre del archivo
       const safeName = merchant.full_name.replace(/\s+/g, '_').toUpperCase();
       link.download = `FOTO_${safeName}.jpg`;
       document.body.appendChild(link);
@@ -219,7 +217,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Error al descargar la imagen:", error);
-      // Fallback simple por si falla el fetch (CORS u otros)
       window.open(imageUrl, '_blank');
     }
   };
@@ -354,7 +351,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
         </div>
       </header>
 
-      {/* BARRA DE FILTROS BENTO - Condicionada por Rol de Secretaria */}
       <div className="flex overflow-x-auto pb-4 gap-4 custom-scrollbar snap-x scroll-pl-4">
         {!isSecretary && (
           <>
@@ -375,6 +371,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
           const hasPayments = balance > 0 && balance < totalDebt;
           const isReceivedByAdmin = merchant.admin_received;
           const deliveryCount = Number(merchant.delivery_count || 0);
+          const isNoteActive = activeNoteId === merchant.id;
 
           const cardStyleClass = isReceivedByAdmin && isAdmin
             ? 'bg-purple-900/40 border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.2)]'
@@ -392,7 +389,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
             <div 
               key={merchant.id} 
               onClick={() => isSelectionMode && toggleSelection(merchant)}
-              className={`${cardStyleClass} backdrop-blur-sm border-2 rounded-[2.5rem] sm:rounded-[3rem] p-6 sm:p-8 neobrutalism-shadow flex flex-col gap-5 group transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 relative snap-start ${isSelectionMode ? 'cursor-pointer' : ''}`}
+              className={`${cardStyleClass} backdrop-blur-sm border-2 rounded-[2.5rem] sm:rounded-[3rem] p-6 sm:p-8 neobrutalism-shadow flex flex-col gap-5 group transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 relative snap-start ${isSelectionMode ? 'cursor-pointer' : ''} ${isNoteActive ? 'z-[100]' : 'z-0'}`}
             >
               {isSelectionMode && (
                 <div className="absolute top-4 left-4 z-10 scale-125">
@@ -408,7 +405,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
                 </div>
               )}
 
-              {/* Distintivo de RE-ENTREGADO para el Admin */}
               {isAdmin && deliveryCount > 1 && (
                 <div className="absolute -top-3 -right-3 bg-violet-600 border-2 border-black px-4 py-1.5 rounded-full flex items-center gap-2 neobrutalism-shadow z-20 animate-bounce">
                    <History className="w-3.5 h-3.5 text-white" />
@@ -423,8 +419,8 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
                 </div>
               )}
 
-              <div className="flex items-start justify-between gap-3 overflow-hidden">
-                <div className="flex items-center gap-4 min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3 overflow-visible">
+                <div className="flex items-center gap-4 min-w-0 flex-1 overflow-visible">
                   <div className="relative flex-shrink-0">
                     <img 
                       src={merchant.profile_photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(merchant.full_name)}&background=2563eb&color=fff&bold=true`} 
@@ -437,10 +433,39 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
                       }`} />
                     )}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-lg sm:text-xl md:text-2xl font-black leading-tight truncate uppercase tracking-tighter text-white">
-                      {merchant.full_name}
-                    </h3>
+                  <div className="min-w-0 flex-1 relative overflow-visible">
+                    <div className="flex items-center gap-2 overflow-visible">
+                      <h3 className="text-lg sm:text-xl md:text-2xl font-black leading-tight truncate uppercase tracking-tighter text-white max-w-[calc(100%-40px)]">
+                        {merchant.full_name}
+                      </h3>
+                      {merchant.note && (
+                        <div className="relative overflow-visible flex-shrink-0">
+                          <button 
+                            onMouseEnter={() => setActiveNoteId(merchant.id)}
+                            onMouseLeave={() => setActiveNoteId(null)}
+                            onClick={(e) => { e.stopPropagation(); setActiveNoteId(isNoteActive ? null : merchant.id); }}
+                            className="p-1.5 bg-yellow-400 border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all animate-pulse"
+                            title="Ver nota de expediente"
+                          >
+                            <StickyNote className="w-4 h-4 text-black" />
+                          </button>
+                          
+                          {/* Tooltip Neobrutalista Corregido para Móvil y Z-Index */}
+                          {isNoteActive && (
+                            <div className="absolute bottom-full right-0 sm:left-0 sm:right-auto mb-3 w-[75vw] max-w-[280px] sm:w-72 bg-yellow-100 border-4 border-black p-4 rounded-2xl neobrutalism-shadow z-[1000] animate-in zoom-in-95 pointer-events-none origin-bottom-right sm:origin-bottom-left">
+                              <p className="text-[10px] font-black uppercase text-yellow-800 tracking-widest mb-2 border-b-2 border-yellow-300 pb-1 flex items-center gap-2">
+                                <StickyNote className="w-3 h-3" /> Nota de Expediente
+                              </p>
+                              <p className="text-[11px] font-bold text-slate-900 leading-relaxed italic break-words">
+                                "{merchant.note}"
+                              </p>
+                              {/* Flecha del tooltip */}
+                              <div className="absolute -bottom-3 right-4 sm:left-4 sm:right-auto w-5 h-5 bg-yellow-100 border-r-4 border-b-4 border-black rotate-45"></div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div className="bg-slate-900/80 border border-slate-700 px-3 py-1 rounded-xl flex items-center gap-2 mt-2 w-fit">
                       <Briefcase className="w-3 h-3 text-blue-400" />
                       <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest truncate max-w-[120px]">
@@ -553,7 +578,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
         </div>
       )}
 
-      {/* MODAL DE ADVERTENCIA DE RE-ENTREGA (SECRETARIA) */}
       {reDeliveryConfirmMerchant && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[250] flex items-center justify-center p-4">
            <div className="bg-amber-400 border-4 border-black p-8 rounded-[2.5rem] w-full max-w-md neobrutalism-shadow-lg text-slate-900 animate-in zoom-in-95">
@@ -584,7 +608,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, systemLogo, on
         </div>
       )}
 
-      {/* Modal de Historial de Abonos */}
       {historyMerchant && (() => {
         const totalInitial = Number(historyMerchant.total_debt);
         const totalAbonado = merchantAbonos.reduce((sum, a) => sum + Number(a.amount), 0);
