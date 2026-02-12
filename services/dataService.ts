@@ -15,6 +15,74 @@ export const dataService = {
     if (error) throw error;
   },
 
+  // --- SISTEMA DE SNAPSHOT DE SEGURIDAD (BACKUP JSON) ---
+  
+  /**
+   * Genera un objeto completo con todas las tablas del sistema
+   */
+  getSnapshotData: async () => {
+    const [merchants, zones, abonos, assignments] = await Promise.all([
+      supabase.from('merchants').select('*'),
+      supabase.from('zones').select('*'),
+      supabase.from('abonos').select('*'),
+      supabase.from('zone_assignments').select('*')
+    ]);
+
+    if (merchants.error) throw merchants.error;
+    if (zones.error) throw zones.error;
+    if (abonos.error) throw abonos.error;
+    if (assignments.error) throw assignments.error;
+
+    return {
+      version: "2.5",
+      timestamp: new Date().toISOString(),
+      backup_id: Math.random().toString(36).substring(2, 15).toUpperCase(),
+      data: {
+        merchants: merchants.data,
+        zones: zones.data,
+        abonos: abonos.data,
+        zone_assignments: assignments.data
+      }
+    };
+  },
+
+  /**
+   * Restaura datos desde un objeto JSON mediante UPSERT
+   */
+  restoreSnapshot: async (snapshot: any) => {
+    if (!snapshot.data || !snapshot.version) {
+      throw new Error("El archivo no tiene un formato de Snapshot ATCEM válido.");
+    }
+
+    const { merchants, zones, abonos, zone_assignments } = snapshot.data;
+
+    // 1. Restaurar Zonas primero (Requerido para llaves foráneas)
+    if (zones?.length > 0) {
+      const { error } = await supabase.from('zones').upsert(zones);
+      if (error) throw new Error("Error en zonas: " + error.message);
+    }
+
+    // 2. Restaurar Comerciantes
+    if (merchants?.length > 0) {
+      const { error } = await supabase.from('merchants').upsert(merchants);
+      if (error) throw new Error("Error en comerciantes: " + error.message);
+    }
+
+    // 3. Restaurar Asignaciones de Zona
+    if (zone_assignments?.length > 0) {
+      const { error } = await supabase.from('zone_assignments').upsert(zone_assignments);
+      if (error) throw new Error("Error en asignaciones: " + error.message);
+    }
+
+    // 4. Restaurar Abonos
+    if (abonos?.length > 0) {
+      const { error } = await supabase.from('abonos').upsert(abonos);
+      if (error) throw new Error("Error en abonos: " + error.message);
+    }
+
+    return true;
+  },
+
   // Recuperación exclusiva para Administrador
   sendAdminPasswordReset: async (email: string) => {
     const { data: profile, error: profileError } = await supabase
