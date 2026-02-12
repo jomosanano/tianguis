@@ -42,7 +42,7 @@
       .safe-top { padding-top: env(safe-area-inset-top); }
       .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
-      /* Credential 3D Flip Styles - CORRECCIÓN DE ALINEACIÓN ABSOLUTA */
+      /* Credential 3D Flip Styles */
       .credential-container {
         perspective: 2000px;
         position: relative;
@@ -56,7 +56,7 @@
         height: 100%;
         transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
         transform-style: preserve-3d;
-        transform: translateZ(0); /* Estabilización GPU */
+        transform: translateZ(0);
       }
       .credential-inner.flipped {
         transform: rotateY(180deg) translateZ(0);
@@ -85,7 +85,7 @@
         z-index: 1;
       }
 
-      /* Pattern Security (Guilloché-like) */
+      /* Pattern Security */
       .bg-guilloche {
         background-color: #0f172a;
         background-image: radial-gradient(#1e293b 0.5px, transparent 0.5px);
@@ -106,6 +106,22 @@
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
       }
+
+      /* Scanning animation */
+      .scanning-line {
+        position: absolute;
+        width: 100%;
+        height: 4px;
+        background: rgba(59, 130, 246, 0.5);
+        box-shadow: 0 0 15px 2px rgba(59, 130, 246, 0.8);
+        top: 0;
+        animation: scan 3s infinite linear;
+      }
+      @keyframes scan {
+        0% { top: 0%; }
+        50% { top: 100%; }
+        100% { top: 0%; }
+      }
     </style>
   <script type="importmap">
 {
@@ -114,7 +130,8 @@
     "react/": "https://esm.sh/react@^19.2.4/",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
     "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7"
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
+    "jsqr": "https://esm.sh/jsqr@1.4.0"
   }
 }
 </script>

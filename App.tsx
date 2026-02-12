@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, UserPlus, Map, LogOut, Menu, X, ShieldCheck, Loader2, UserCog, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Map, LogOut, Menu, X, ShieldCheck, Loader2, UserCog, Settings as SettingsIcon, QrCode } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { MerchantForm } from './components/MerchantForm';
 import { MerchantList } from './components/MerchantList';
@@ -8,13 +8,14 @@ import { ZoneManagement } from './components/ZoneManagement';
 import { StaffManagement } from './components/StaffManagement';
 import { Settings } from './components/Settings';
 import { Auth } from './components/Auth';
+import { QRScanner } from './components/QRScanner';
 import { dataService } from './services/dataService';
 import { supabase } from './services/supabase';
 import { User, Merchant, Abono } from './types';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'directory' | 'register' | 'zones' | 'staff' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'directory' | 'register' | 'zones' | 'staff' | 'settings' | 'scanner'>('dashboard');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -156,6 +157,10 @@ const App: React.FC = () => {
           <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <NavItem id="directory" icon={Users} label="Directorio" />
           
+          {(currentUser?.role === 'ADMIN' || currentUser?.role === 'DELEGATE') && (
+            <NavItem id="scanner" icon={QrCode} label="Escáner" />
+          )}
+
           {currentUser?.role === 'ADMIN' && (
             <NavItem id="staff" icon={UserCog} label="Personal" />
           )}
@@ -212,6 +217,7 @@ const App: React.FC = () => {
                   delegatesCanCollect={delegatesCanCollect}
                 />
               )}
+              {activeTab === 'scanner' && <QRScanner />}
               {activeTab === 'register' && (
                 <MerchantForm 
                   initialData={editingMerchant}
@@ -241,14 +247,14 @@ const App: React.FC = () => {
         <button onClick={() => setActiveTab('directory')} className={`p-4 rounded-2xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
           <Users className="w-6 h-6" />
         </button>
-        {currentUser?.role === 'ADMIN' && (
-          <button onClick={() => setActiveTab('register')} className={`p-4 rounded-2xl transition-all ${activeTab === 'register' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
-            <UserPlus className="w-6 h-6" />
+        {(currentUser?.role === 'ADMIN' || currentUser?.role === 'DELEGATE') && (
+          <button onClick={() => setActiveTab('scanner')} className={`p-4 rounded-2xl transition-all ${activeTab === 'scanner' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
+            <QrCode className="w-6 h-6" />
           </button>
         )}
         {currentUser?.role === 'ADMIN' && (
-          <button onClick={() => setActiveTab('settings')} className={`p-4 rounded-2xl transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
-            <SettingsIcon className="w-6 h-6" />
+          <button onClick={() => setActiveTab('register')} className={`p-4 rounded-2xl transition-all ${activeTab === 'register' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
+            <UserPlus className="w-6 h-6" />
           </button>
         )}
       </nav>

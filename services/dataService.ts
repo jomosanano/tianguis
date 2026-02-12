@@ -15,9 +15,32 @@ export const dataService = {
     if (error) throw error;
   },
 
-  // Logística masiva con incremento de contador
+  // Recuperación exclusiva para Administrador
+  sendAdminPasswordReset: async (email: string) => {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('email', email)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error("Usuario no encontrado.");
+    }
+
+    if (profile.role !== 'ADMIN') {
+      throw new Error("Acceso denegado. Solo el administrador puede recuperar su contraseña por este medio.");
+    }
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+
+    if (resetError) throw resetError;
+    return true;
+  },
+
+  // Logística masiva
   batchUpdateMerchantsLogistics: async (ids: string[], received: boolean) => {
-    // Si marcamos como recibido, incrementamos el contador
     const { data: currentMerchants } = await supabase.from('merchants').select('id, delivery_count').in('id', ids);
     
     const updates = currentMerchants?.map(m => ({
@@ -32,6 +55,29 @@ export const dataService = {
         await supabase.from('merchants').update(update).eq('id', update.id);
       }
     }
+  },
+
+  getMerchantById: async (id: string) => {
+    const { data, error } = await supabase
+      .from('merchants')
+      .select(`
+        *,
+        zone_assignments(
+          *,
+          zones(name)
+        )
+      `)
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    
+    return {
+      ...data,
+      profile_photo: data.profile_photo_url,
+      ine_photo: data.ine_photo_url,
+      assignments: data.zone_assignments || []
+    } as unknown as Merchant;
   },
 
   // Obtener todos los comerciantes para exportación
@@ -51,17 +97,13 @@ export const dataService = {
     return data;
   },
 
-  // Búsqueda con filtros de ROL integrados y SEGURIDAD REFORZADA
+  // Búsqueda con filtros de ROL
   getMerchantsPaginated: async (page: number, pageSize: number, search: string = '', user: User | null) => {
-    // SEGURIDAD: Si no hay usuario, no devolvemos nada
-    if (!user) {
-      return { data: [], totalCount: 0 };
-    }
+    if (!user) return { data: [], totalCount: 0 };
 
     const from = page * pageSize;
     const to = from + pageSize - 1;
 
-    // Usamos !inner para asegurar que el filtro por zone_id afecte a la fila principal (merchant)
     let query = supabase
       .from('merchants')
       .select(`
@@ -72,18 +114,14 @@ export const dataService = {
         )
       `, { count: 'exact' });
 
-    // REGLA SECRETARIA: Solo puede ver comerciantes liquidados (status = 'PAID')
     if (user.role === 'SECRETARY') {
       query = query.eq('status', 'PAID');
     }
 
-    // REGLA DELEGADO: Solo sus zonas asignadas (FILTRO CRÍTICO)
     if (user.role === 'DELEGATE') {
       if (user.assigned_zones && user.assigned_zones.length > 0) {
-        // Filtramos sobre la tabla relacionada. Supabase/PostgREST usará el inner join para restringir los merchants.
         query = query.in('zone_assignments.zone_id', user.assigned_zones);
       } else {
-        // Si es delegado pero no tiene zonas, devolvemos un ID inexistente para asegurar 0 resultados
         query = query.eq('id', '00000000-0000-0000-0000-000000000000');
       }
     }
