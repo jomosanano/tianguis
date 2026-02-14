@@ -19,8 +19,6 @@ export const dataService = {
     const from = page * pageSize;
     const to = from + pageSize - 1;
     
-    // Definimos la selección base. 
-    // Si es delegado, usamos !inner para que el filtro de zona afecte al registro principal.
     let selectString = `*, zone_assignments(*, zones(name))`;
     if (user.role === 'DELEGATE') {
       selectString = `*, zone_assignments!inner(*, zones(name))`;
@@ -32,10 +30,8 @@ export const dataService = {
     
     if (user.role === 'DELEGATE') {
       if (user.assigned_zones && user.assigned_zones.length > 0) {
-        // Solo registros que pertenezcan a las zonas del delegado
         query = query.in('zone_assignments.zone_id', user.assigned_zones);
       } else {
-        // Si no tiene zonas asignadas, no debe ver nada
         return { data: [], totalCount: 0 };
       }
     }
@@ -56,6 +52,38 @@ export const dataService = {
     })) as unknown as Merchant[];
 
     return { data: formattedData, totalCount: count || 0 };
+  },
+
+  getMerchantsReadyForAdmin: async () => {
+    const { data, error } = await supabase
+      .from('merchants')
+      .select('id, first_name, last_name_paterno')
+      .eq('ready_for_admin', true)
+      .eq('admin_received', false);
+    if (error) throw error;
+    return data;
+  },
+
+  markAsReadyForAdmin: async (ids: string[]) => {
+    const { error } = await supabase
+      .from('merchants')
+      .update({ ready_for_admin: true, admin_received: false })
+      .in('id', ids);
+    if (error) throw error;
+  },
+
+  confirmAdminReceipt: async (ids: string[]) => {
+    const { data: current } = await supabase.from('merchants').select('id, delivery_count').in('id', ids);
+    if (!current) return;
+
+    for (const m of current) {
+      await supabase.from('merchants').update({
+        ready_for_admin: false,
+        admin_received: true,
+        admin_received_at: new Date().toISOString(),
+        delivery_count: (Number(m.delivery_count || 0) + 1)
+      }).eq('id', m.id);
+    }
   },
 
   getAllMerchantsForExport: async () => {

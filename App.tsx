@@ -26,6 +26,9 @@ const App: React.FC = () => {
   const [delegatesCanCollect, setDelegatesCanCollect] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Estado logística
+  const [logisticsCount, setLogisticsCount] = useState(0);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -59,6 +62,11 @@ const App: React.FC = () => {
       setRecentAbonos(abonos);
       setSystemLogo(settings.logo_url);
       setDelegatesCanCollect(settings.delegates_can_collect ?? false);
+
+      if (user?.role === 'ADMIN') {
+        const logistics = await dataService.getMerchantsReadyForAdmin();
+        setLogisticsCount(logistics.length);
+      }
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -97,14 +105,14 @@ const App: React.FC = () => {
 
   if (!session) return <Auth />;
 
-  const NavItem = ({ id, icon: Icon, label }: { id: any, icon: any, label: string }) => (
+  const NavItem = ({ id, icon: Icon, label, badge }: { id: any, icon: any, label: string, badge?: number }) => (
     <button
       onClick={() => { 
         if (id !== 'register') setEditingMerchant(null);
         setActiveTab(id); 
         setIsMobileMenuOpen(false); 
       }}
-      className={`flex items-center gap-4 w-full p-4 rounded-2xl border-2 transition-all font-black text-left group ${
+      className={`flex items-center gap-4 w-full p-4 rounded-2xl border-2 transition-all font-black text-left group relative ${
         activeTab === id 
           ? 'bg-blue-600 border-black text-white neobrutalism-shadow' 
           : 'bg-transparent border-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-800'
@@ -112,6 +120,11 @@ const App: React.FC = () => {
     >
       <Icon className={`w-6 h-6 transition-transform group-hover:scale-110 ${activeTab === id ? 'animate-bounce' : ''}`} />
       <span className="uppercase text-sm tracking-widest">{label}</span>
+      {badge ? (
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 bg-violet-500 border-2 border-black text-[10px] text-white px-2 py-0.5 rounded-full neobrutalism-shadow animate-pulse">
+          {badge}
+        </span>
+      ) : null}
     </button>
   );
 
@@ -155,7 +168,7 @@ const App: React.FC = () => {
 
         <nav className="flex-1 space-y-3">
           <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
-          <NavItem id="directory" icon={Users} label="Directorio" />
+          <NavItem id="directory" icon={Users} label="Directorio" badge={currentUser?.role === 'ADMIN' && logisticsCount > 0 ? logisticsCount : undefined} />
           
           {(currentUser?.role === 'ADMIN' || currentUser?.role === 'DELEGATE') && (
             <NavItem id="scanner" icon={QrCode} label="Escáner" />
@@ -207,7 +220,7 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-              {activeTab === 'dashboard' && <Dashboard stats={dashboardStats} abonos={recentAbonos} userRole={currentUser?.role} />}
+              {activeTab === 'dashboard' && <Dashboard stats={dashboardStats} abonos={recentAbonos} userRole={currentUser?.role} onRefresh={() => fetchEssentialData(true)} />}
               {activeTab === 'directory' && (
                 <MerchantList 
                   user={currentUser} 
@@ -244,8 +257,13 @@ const App: React.FC = () => {
         <button onClick={() => setActiveTab('dashboard')} className={`p-4 rounded-2xl transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
           <LayoutDashboard className="w-6 h-6" />
         </button>
-        <button onClick={() => setActiveTab('directory')} className={`p-4 rounded-2xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
+        <button onClick={() => setActiveTab('directory')} className={`p-4 rounded-2xl transition-all relative ${activeTab === 'directory' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>
           <Users className="w-6 h-6" />
+          {currentUser?.role === 'ADMIN' && logisticsCount > 0 && (
+            <span className="absolute top-1 right-1 bg-violet-500 border border-black w-4 h-4 rounded-full flex items-center justify-center text-[8px] text-white">
+              {logisticsCount}
+            </span>
+          )}
         </button>
         {(currentUser?.role === 'ADMIN' || currentUser?.role === 'DELEGATE') && (
           <button onClick={() => setActiveTab('scanner')} className={`p-4 rounded-2xl transition-all ${activeTab === 'scanner' ? 'bg-blue-600 text-white border-2 border-black -translate-y-2' : 'text-slate-400'}`}>

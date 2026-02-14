@@ -1,7 +1,8 @@
 
-import React from 'react';
-import { Users, DollarSign, TrendingDown, CheckCircle, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Users, DollarSign, TrendingDown, CheckCircle, Clock, PackageCheck, Loader2 } from 'lucide-react';
 import { Abono, Role } from '../types';
+import { dataService } from '../services/dataService';
 
 interface DashboardProps {
   stats: {
@@ -12,13 +13,42 @@ interface DashboardProps {
   };
   abonos: Abono[];
   userRole?: Role;
+  onRefresh?: () => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole }) => {
-  const percentage = stats?.total_debt > 0 ? (stats.total_collected / stats.total_debt) * 100 : 0;
+export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole, onRefresh }) => {
+  const [pendingLogistics, setPendingLogistics] = useState<any[]>([]);
+  const [logisticsLoading, setLogisticsLoading] = useState(false);
   
-  // Definimos roles restringidos para métricas financieras sensibles
+  const isAdmin = userRole === 'ADMIN';
   const isRestricted = userRole === 'SECRETARY' || userRole === 'DELEGATE';
+
+  useEffect(() => {
+    if (isAdmin) fetchLogistics();
+  }, [isAdmin]);
+
+  const fetchLogistics = async () => {
+    try {
+      const data = await dataService.getMerchantsReadyForAdmin();
+      setPendingLogistics(data);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleConfirmReceipt = async () => {
+    if (pendingLogistics.length === 0) return;
+    setLogisticsLoading(true);
+    try {
+      await dataService.confirmAdminReceipt(pendingLogistics.map(m => m.id));
+      setPendingLogistics([]);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      alert("Error al confirmar recepción.");
+    } finally {
+      setLogisticsLoading(false);
+    }
+  };
+
+  const percentage = stats?.total_debt > 0 ? (stats.total_collected / stats.total_debt) * 100 : 0;
 
   const StatCard = ({ icon: Icon, color, label, value }: any) => (
     <div className={`${color} p-6 sm:p-8 rounded-[2rem] border-2 border-black neobrutalism-shadow text-white flex flex-col justify-between transition-transform hover:scale-[1.02]`}>
@@ -43,6 +73,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole })
         </h1>
         <p className="text-sm font-bold text-slate-500 uppercase tracking-[0.3em]">Métricas de Escala Masiva</p>
       </header>
+
+      {/* BANNER MORADO LOGÍSTICA (ADMIN) */}
+      {isAdmin && pendingLogistics.length > 0 && (
+        <div className="bg-violet-600 border-4 border-black p-8 rounded-[2.5rem] neobrutalism-shadow-lg text-white animate-in slide-in-from-top-4 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-6">
+            <div className="bg-white p-4 rounded-3xl border-2 border-black neobrutalism-shadow rotate-3">
+               <PackageCheck className="w-10 h-10 text-violet-600" />
+            </div>
+            <div>
+               <h2 className="text-3xl font-black uppercase italic tracking-tighter leading-none">¡Atención Administrador!</h2>
+               <p className="text-xs font-bold uppercase tracking-widest text-violet-200 mt-2">La secretaría ha enviado <span className="text-white text-lg font-black">{pendingLogistics.length} credenciales</span> listas para revisión física.</p>
+            </div>
+          </div>
+          <button 
+            onClick={handleConfirmReceipt}
+            disabled={logisticsLoading}
+            className="w-full md:w-auto bg-black border-2 border-white px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-900 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
+          >
+            {logisticsLoading ? <Loader2 className="animate-spin" /> : <CheckCircle className="w-5 h-5" />} 
+            CONFIRMAR RECEPCIÓN DE LOTE
+          </button>
+        </div>
+      )}
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <StatCard icon={Users} color="bg-blue-600" label="Comerciantes" value={stats?.total_merchants || 0} />

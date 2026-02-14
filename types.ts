@@ -52,4 +52,5 @@ export interface Merchant {
   admin_received?: boolean;
   admin_received_at?: string;
   delivery_count?: number; 
+  ready_for_admin?: boolean; // Nuevo: Marcado por secretaria
 }

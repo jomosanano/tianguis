@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, Loader2, Edit2, Trash2, X, Receipt, FilePlus2, ArrowRight, History, MapPin, User, ShieldAlert, IdCard, StickyNote, MessageSquareText, PlusCircle, DollarSign, BadgePercent, Ruler, Plus, Calculator, Settings2, Archive, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Search, Loader2, Edit2, Trash2, X, Receipt, FilePlus2, ArrowRight, History, MapPin, User, ShieldAlert, IdCard, StickyNote, MessageSquareText, PlusCircle, DollarSign, BadgePercent, Ruler, Plus, Calculator, Settings2, Archive, CheckCircle2, AlertTriangle, RefreshCw, QrCode, CheckSquare, Square, PackageCheck } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { dataService } from '../services/dataService';
 import { Merchant, Abono, User as UserType, Zone, ZoneAssignment } from '../types';
@@ -17,7 +17,7 @@ const PAGE_SIZE = 12;
 type FilterType = 'ALL' | 'NO_PAYMENTS' | 'IN_PROGRESS' | 'LIQUIDATED';
 const WORK_DAYS = ['Diario', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo', 'Fines de Semana'];
 
-export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onEdit, delegatesCanCollect = false }) => {
+export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onEdit, delegatesCanCollect = false, systemLogo }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [merchants, setMerchants] = useState<Merchant[]>([]);
@@ -44,14 +44,31 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
   const [adjLoading, setAdjLoading] = useState(false);
   
   const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
+  const [selectedCredential, setSelectedCredential] = useState<Merchant | null>(null);
+  const [isFlipped, setIsFlipped] = useState(false);
+
+  // Estados para Logística (Secretaria)
+  const [selectedForDelivery, setSelectedForDelivery] = useState<Set<string>>(new Set());
+  const [logisticsLoading, setLogisticsLoading] = useState(false);
 
   const isDelegate = user?.role === 'DELEGATE';
+  const isSecretary = user?.role === 'SECRETARY';
   const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 400);
     return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  // Fix: Added fetchZones function which was missing
+  const fetchZones = async () => {
+    try {
+      const data = await dataService.getZones();
+      setZones(data);
+    } catch (error) {
+      console.error("Error fetching zones:", error);
+    }
+  };
 
   useEffect(() => {
     setMerchants([]);
@@ -60,13 +77,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     fetchData(0, debouncedSearch, true);
     if (isAdmin) fetchZones();
   }, [debouncedSearch, user]);
-
-  const fetchZones = async () => {
-    try {
-      const data = await dataService.getZones();
-      setZones(data);
-    } catch (e) { console.error(e); }
-  };
 
   const fetchData = async (pageNum: number, search: string, isNew: boolean = false) => {
     if (loading) return;
@@ -111,6 +121,28 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     });
   }, [merchants, activeFilter]);
 
+  const toggleSelection = (id: string) => {
+    const next = new Set(selectedForDelivery);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedForDelivery(next);
+  };
+
+  const handleBatchDelivery = async () => {
+    if (selectedForDelivery.size === 0) return;
+    setLogisticsLoading(true);
+    try {
+      await dataService.markAsReadyForAdmin(Array.from(selectedForDelivery));
+      setSelectedForDelivery(new Set());
+      onRefresh(true);
+      alert(`¡Lote enviado!\n\nSe han marcado ${selectedForDelivery.size} credenciales como listas para el Administrador.`);
+    } catch (err) {
+      alert("Error en logística.");
+    } finally {
+      setLogisticsLoading(false);
+    }
+  };
+
   const handleOpenAdjustment = (m: Merchant) => {
     if (m.balance > 0) {
       setAdjustmentMerchant(m);
@@ -152,7 +184,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
       const prevBalance = Number(adjustmentMerchant.balance);
       const nuevaDeudaTotal = adjAssignments.reduce((sum, a) => sum + (Number(a.calculated_cost) || 0), 0);
       
-      // 1. Archivar abonos anteriores
       const { error: archiveError } = await supabase
         .from('abonos')
         .update({ archived: true })
@@ -160,14 +191,12 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
       
       if (archiveError) throw archiveError;
 
-      // 2. Preparar nota automática si había saldo vivo
       let newNote = adjustmentMerchant.note || '';
       if (prevBalance > 0) {
         const syncNote = `[Sincronización manual - Fecha: ${new Date().toLocaleDateString()} - Deuda pendiente anterior: $${prevBalance.toLocaleString()}]`;
         newNote = newNote ? `${newNote}\n${syncNote}` : syncNote;
       }
 
-      // 3. Reset y Sincronización
       const now = new Date().toISOString();
       const { error: resetError } = await supabase
         .from('merchants')
@@ -175,13 +204,14 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
           balance_reset_at: now,
           total_debt: nuevaDeudaTotal,
           balance: nuevaDeudaTotal,
-          note: newNote
+          note: newNote,
+          admin_received: false,
+          ready_for_admin: false
         })
         .eq('id', adjustmentMerchant.id);
       
       if (resetError) throw resetError;
 
-      // 4. Actualizar asignaciones
       await supabase.from('zone_assignments').delete().eq('merchant_id', adjustmentMerchant.id);
       
       if (adjAssignments.length > 0) {
@@ -198,7 +228,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
 
       setAdjustmentMerchant(null);
       onRefresh(true);
-      alert("¡SINCRONIZACIÓN EXITOSA!\n\nLos abonos anteriores han sido archivados. El comerciante inicia este nuevo ciclo con saldo limpio.");
+      alert("¡SINCRONIZACIÓN EXITOSA!");
     } catch (err: any) {
       alert("Error: " + err.message);
     } finally {
@@ -238,6 +268,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
   };
 
   const openHistory = async (merchant: Merchant) => {
+    if (isSecretary) return;
     setMerchantAbonos([]);
     setHistoryMerchant(merchant);
     setHistoryLoading(true);
@@ -275,7 +306,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
   const totalNuevaDeuda = adjAssignments.reduce((sum, a) => sum + (Number(a.calculated_cost) || 0), 0);
 
   return (
-    <div className="space-y-8 pb-32">
+    <div className="space-y-8 pb-32 relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 text-white">
         <div>
           <h2 className="text-4xl font-black uppercase italic tracking-tighter">
@@ -292,10 +323,11 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredMerchants.map(m => {
           const isTooltipActive = activeTooltipId === m.id;
+          const isSelected = selectedForDelivery.has(m.id);
           const balance = Number(m.balance);
           const totalDebt = Number(m.total_debt);
+          const isInTransit = m.ready_for_admin && !m.admin_received;
           
-          // Lógica de semaforización
           let statusBorderClass = 'border-slate-700';
           let statusLabel = 'SIN DEUDA';
           let accentColorClass = 'text-slate-400';
@@ -317,14 +349,31 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
           }
 
           return (
-            <div key={m.id} className={`bg-[#1e1b1b] border-4 ${statusBorderClass} rounded-[2.5rem] p-6 flex flex-col gap-6 relative neobrutalism-shadow transition-all hover:scale-[1.01]`}>
+            <div key={m.id} className={`bg-[#1e1b1b] border-4 ${statusBorderClass} rounded-[2.5rem] p-6 flex flex-col gap-6 relative neobrutalism-shadow transition-all hover:scale-[1.01] ${isSelected ? 'ring-4 ring-blue-500 ring-offset-4 ring-offset-slate-950' : ''}`}>
+              
+              {/* Selector Logística (Solo Secretaria y Liquidado) */}
+              {isSecretary && balance === 0 && !isInTransit && (
+                <button 
+                  onClick={() => toggleSelection(m.id)}
+                  className="absolute -top-3 -right-3 z-30 p-2 bg-white border-4 border-black rounded-xl neobrutalism-shadow hover:scale-110 transition-transform"
+                >
+                  {isSelected ? <CheckSquare className="text-blue-600 w-6 h-6" /> : <Square className="text-slate-400 w-6 h-6" />}
+                </button>
+              )}
+
+              {/* Badge En Tránsito */}
+              {isInTransit && (
+                <div className="absolute -top-3 -right-3 z-30 px-3 py-1.5 bg-violet-600 border-2 border-black rounded-xl text-[10px] font-black text-white italic tracking-tighter neobrutalism-shadow animate-bounce">
+                  EN TRÁNSITO
+                </div>
+              )}
+
               <div className="flex gap-4">
                 <div className="relative w-20 h-20 flex-shrink-0">
                   <div className="w-full h-full rounded-2xl border-2 border-black overflow-hidden bg-white">
                     <img src={m.profile_photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.first_name)}`} className="w-full h-full object-cover" />
                   </div>
                   
-                  {/* Icono de Nota Interactiva */}
                   {m.note && (
                     <div 
                       className="absolute -top-2 -right-2 bg-amber-500 p-1.5 rounded-full border-2 border-black shadow-lg animate-subtle-blink cursor-help z-20"
@@ -334,7 +383,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
                     >
                       <StickyNote className="w-4 h-4 text-black" />
                       
-                      {/* Tooltip de Nota */}
                       {isTooltipActive && (
                         <div className="absolute left-full top-0 ml-4 w-56 bg-amber-400 border-4 border-black p-4 rounded-2xl neobrutalism-shadow-lg z-50 animate-in zoom-in-95 pointer-events-none sm:pointer-events-auto">
                            <div className="flex items-center gap-2 mb-2 border-b-2 border-black/20 pb-1">
@@ -344,7 +392,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
                            <p className="text-[11px] font-bold text-black leading-tight whitespace-pre-line">
                               {m.note}
                            </p>
-                           {/* Flecha del tooltip */}
                            <div className="absolute top-4 -left-3 w-0 h-0 border-t-[8px] border-t-transparent border-r-[12px] border-r-black border-b-[8px] border-b-transparent"></div>
                         </div>
                       )}
@@ -372,7 +419,10 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button onClick={() => openHistory(m)} title="Historial" className="p-2 bg-slate-800 border-2 border-black rounded-xl text-white active:scale-90 shadow-sm"><History size={14}/></button>
+                    {!isSecretary && (
+                      <button onClick={() => openHistory(m)} title="Historial" className="p-2 bg-slate-800 border-2 border-black rounded-xl text-white active:scale-90 shadow-sm"><History size={14}/></button>
+                    )}
+                    <button onClick={() => setSelectedCredential(m)} title="Credencial" className="p-2 bg-blue-600 border-2 border-black rounded-xl text-white active:scale-90 shadow-sm"><IdCard size={14}/></button>
                     {isAdmin && (
                       <>
                         <button onClick={() => handleOpenAdjustment(m)} title="Sincronizar Ciclo" className="p-2 bg-violet-600 border-2 border-black rounded-xl text-white active:scale-90 shadow-sm"><Archive size={14}/></button>
@@ -398,7 +448,13 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
 
               <div className="flex gap-3">
                 <button 
-                  onClick={() => m.balance > 0 ? setSelectedMerchant(m) : openHistory(m)} 
+                  onClick={() => {
+                    if (m.balance > 0) {
+                      setSelectedMerchant(m);
+                    } else if (!isSecretary) {
+                      openHistory(m);
+                    }
+                  }} 
                   className={`flex-1 border-4 border-black p-4 rounded-2xl font-black text-xs uppercase tracking-widest text-white neobrutalism-shadow active:scale-95 transition-colors ${
                     balance === 0 ? 'bg-blue-600' : balance < totalDebt ? 'bg-amber-500' : 'bg-rose-600'
                   }`}
@@ -411,7 +467,135 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
         })}
       </div>
 
+      {/* BARRA FLOTANTE LOGÍSTICA (SECRETARIA) */}
+      {isSecretary && selectedForDelivery.size > 0 && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-lg px-4 z-50 animate-in slide-in-from-bottom-10">
+          <div className="bg-violet-600 border-4 border-black p-6 rounded-[2.5rem] neobrutalism-shadow-lg flex items-center justify-between text-white">
+            <div className="flex items-center gap-4">
+               <div className="bg-black/20 p-3 rounded-2xl">
+                  <PackageCheck className="w-8 h-8" />
+               </div>
+               <div>
+                  <p className="font-black text-lg tracking-tighter leading-none">{selectedForDelivery.size} SELECCIONADAS</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Listas para entregar al Admin</p>
+               </div>
+            </div>
+            <button 
+              onClick={handleBatchDelivery}
+              disabled={logisticsLoading}
+              className="bg-white border-2 border-black px-6 py-3 rounded-2xl text-violet-700 font-black uppercase text-xs neobrutalism-shadow active:scale-95 disabled:opacity-50 flex items-center gap-2"
+            >
+              {logisticsLoading ? <Loader2 className="animate-spin" /> : 'ENTREGAR LOTE'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div ref={loaderRef} className="h-20 flex justify-center items-center">{loading && <Loader2 className="animate-spin text-blue-500" />}</div>
+
+      {/* Modal Credencial 3D */}
+      {selectedCredential && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[700] flex items-center justify-center p-4">
+           <div className="w-full max-w-sm flex flex-col gap-8 animate-in zoom-in-95 duration-300">
+              <div className="flex justify-between items-center">
+                 <h3 className="text-white font-black uppercase italic tracking-tighter text-2xl">Identificación <span className="text-blue-500">ATCEM</span></h3>
+                 <button onClick={() => { setSelectedCredential(null); setIsFlipped(false); }} className="p-3 bg-rose-600 border-2 border-black rounded-2xl text-white active:scale-90 shadow-lg"><X /></button>
+              </div>
+
+              <div className="credential-container aspect-[5/8] sm:aspect-[3/4.5] cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
+                <div className={`credential-inner ${isFlipped ? 'flipped' : ''}`}>
+                  {/* Frente */}
+                  <div className="credential-front bg-slate-900 border-4 border-black flex flex-col items-center p-6 relative">
+                    <div className="absolute inset-0 bg-security-grid opacity-10 pointer-events-none" />
+                    
+                    <div className="flex items-center gap-3 w-full mb-8 z-10">
+                      <div className="w-10 h-10 bg-blue-600 border-2 border-black rounded-xl flex items-center justify-center p-1.5 neobrutalism-shadow">
+                        {systemLogo ? <img src={systemLogo} className="w-full h-full object-contain" /> : <span className="text-white font-black italic">A</span>}
+                      </div>
+                      <div>
+                         <p className="font-black text-white text-lg leading-none tracking-tighter">ATCEM</p>
+                         <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest leading-none mt-1">Gremio de Comerciantes</p>
+                      </div>
+                    </div>
+
+                    <div className="w-48 h-48 rounded-[2.5rem] border-4 border-black neobrutalism-shadow-lg overflow-hidden bg-white mb-6 relative z-10">
+                       <img src={selectedCredential.profile_photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedCredential.full_name)}&background=1e293b&color=fff&bold=true`} className="w-full h-full object-cover" />
+                    </div>
+
+                    <div className="text-center space-y-1 mb-8 z-10">
+                       <h2 className="text-3xl font-black uppercase italic tracking-tighter metallic-gold leading-none">
+                         {selectedCredential.first_name}
+                       </h2>
+                       <p className="text-white/60 font-bold uppercase text-sm">{selectedCredential.last_name_paterno} {selectedCredential.last_name_materno}</p>
+                    </div>
+
+                    <div className="w-full bg-black/40 border-2 border-slate-700/50 p-4 rounded-3xl z-10 text-center">
+                       <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Actividad Comercial</p>
+                       <p className="font-black text-white text-base uppercase italic">{selectedCredential.giro}</p>
+                    </div>
+
+                    <div className="mt-auto w-full z-10">
+                       <div className="bg-slate-800 px-4 py-2.5 rounded-2xl border-2 border-black neobrutalism-shadow flex justify-between items-center">
+                          <div>
+                             <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Folio Único de Registro</p>
+                             <p className="text-[12px] font-black text-white uppercase tracking-tighter italic">{selectedCredential.id.slice(0,14)}</p>
+                          </div>
+                          <div className="bg-blue-600 px-2 py-0.5 rounded-lg border border-black text-[8px] font-black text-white uppercase italic">OFICIAL</div>
+                       </div>
+                    </div>
+                  </div>
+
+                  {/* Reverso */}
+                  <div className="credential-back bg-slate-800 border-4 border-black flex flex-col p-8 relative">
+                    <div className="absolute inset-0 bg-guilloche opacity-20 pointer-events-none" />
+                    
+                    <div className="flex-1 flex flex-col justify-start gap-6 z-10 overflow-y-auto custom-scrollbar pr-1">
+                       <div className="space-y-2">
+                          <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] border-b border-white/10 pb-1">Términos de Uso</p>
+                          <p className="text-[8px] font-bold text-slate-400 leading-relaxed uppercase">
+                            Esta credencial es intransferible y acredita al portador como miembro activo del gremio. Debe portarse en lugar visible durante su jornada laboral.
+                          </p>
+                       </div>
+
+                       <div className="space-y-4">
+                          <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] border-b border-white/10 pb-1">Jurisdicción de Trabajo</p>
+                          <div className="grid grid-cols-1 gap-2">
+                             {selectedCredential.assignments.map((a, i) => (
+                               <div key={i} className="flex justify-between items-center bg-black/30 p-2.5 rounded-xl border border-white/5">
+                                  <span className="text-[10px] font-black text-white uppercase">{(a as any).zones?.name || 'Zona General'}</span>
+                                  <span className="text-[9px] font-bold text-emerald-500 uppercase italic">{a.meters} MTS</span>
+                               </div>
+                             ))}
+                          </div>
+                       </div>
+
+                       {/* QR GRANDE EN EL REVERSO */}
+                       <div className="flex flex-col items-center gap-3 py-4">
+                          <div className="w-36 h-36 bg-white p-2 rounded-[2rem] border-4 border-black neobrutalism-shadow-lg animate-in zoom-in-90">
+                             <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=ATCEM-ID-${selectedCredential.id}`} className="w-full h-full object-contain" />
+                          </div>
+                          <p className="text-[7px] font-black text-slate-500 uppercase tracking-[0.4em]">Escaneo de Auditoría</p>
+                       </div>
+                    </div>
+
+                    <div className="mt-auto text-center space-y-3 z-10 pt-4 border-t-2 border-slate-700/50">
+                       <div className="w-16 h-1 bg-slate-700 mx-auto rounded-full mb-2" />
+                       <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">Validación Oficial ATCEM Enterprise</p>
+                       <p className="text-[10px] font-bold text-white italic tracking-tighter leading-none">"Orden y Progreso Comercial"</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center gap-4">
+                 <div className="flex items-center gap-3 text-slate-400 bg-slate-900/50 px-6 py-3 rounded-2xl border-2 border-black">
+                    <RefreshCw className={`w-5 h-5 transition-transform duration-700 ${isFlipped ? 'rotate-180' : ''}`} />
+                    <span className="font-black text-[10px] uppercase tracking-[0.3em]">Toque para Girar</span>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
 
       {/* Modal de Advertencia por Saldo Vivo */}
       {showSyncWarning && adjustmentMerchant && (
@@ -432,7 +616,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
             <div className="grid grid-cols-2 gap-4">
               <button 
                 onClick={() => { setAdjustmentMerchant(null); setShowSyncWarning(false); }} 
-                className="bg-slate-700 border-4 border-black p-5 rounded-2xl font-black uppercase text-xs active:scale-95"
+                className="bg-slate-700 border-4 border-black p-5 rounded-2xl font-black uppercase text-xs active:scale-95 transition-all"
               >
                 Cancelar
               </button>
@@ -493,7 +677,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <button onClick={() => setAdjustmentMerchant(null)} className="bg-slate-700 border-2 border-black p-4 rounded-2xl font-black uppercase text-xs active:scale-95">Descartar</button>
+                  <button onClick={() => setAdjustmentMerchant(null)} className="bg-slate-700 border-2 border-black p-4 rounded-2xl font-black uppercase text-xs active:scale-95 transition-all">Descartar</button>
                   <button 
                     onClick={saveManualAdjustment} 
                     disabled={adjLoading} 
@@ -513,45 +697,48 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
           <div className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-2xl max-h-[90vh] flex flex-col neobrutalism-shadow-lg text-white">
              <div className="flex justify-between items-center mb-8">
                 <div>
-                  <h3 className="text-2xl font-black uppercase italic tracking-tighter">Historial de <span className="text-blue-500">Pagos</span></h3>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{historyMerchant.full_name}</p>
+                  <h3 className="text-2xl font-black uppercase italic tracking-tighter text-white leading-none">Historial de <span className="text-blue-500">Pagos</span></h3>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">{historyMerchant.full_name}</p>
                 </div>
-                <button onClick={() => setHistoryMerchant(null)} className="p-3 bg-rose-600 border-2 border-black rounded-2xl text-white active:scale-90"><X /></button>
+                <button onClick={() => setHistoryMerchant(null)} className="p-3 bg-rose-600 border-2 border-black rounded-2xl text-white active:scale-90 transition-all shadow-lg"><X /></button>
              </div>
 
              <div className="grid grid-cols-2 gap-4 mb-8 text-center text-xs">
                 <div className="bg-emerald-500/10 border-2 border-emerald-500/30 p-4 rounded-2xl">
-                  <p className="font-black text-emerald-500">RECAUDADO VIVO</p>
-                  <p className="text-xl font-black">${totalAbonadoActivo.toLocaleString()}</p>
+                  <p className="font-black text-emerald-500 uppercase tracking-widest text-[9px]">RECAUDADO VIVO</p>
+                  <p className="text-xl font-black italic tracking-tighter text-white">${totalAbonadoActivo.toLocaleString()}</p>
                 </div>
                 <div className="bg-rose-500/10 border-2 border-rose-500/30 p-4 rounded-2xl">
-                  <p className="font-black text-rose-500">SALDO PENDIENTE</p>
-                  <p className="text-xl font-black">${Number(historyMerchant.balance).toLocaleString()}</p>
+                  <p className="font-black text-rose-500 uppercase tracking-widest text-[9px]">SALDO PENDIENTE</p>
+                  <p className="text-xl font-black italic tracking-tighter text-white">${Number(historyMerchant.balance).toLocaleString()}</p>
                 </div>
              </div>
 
              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2 mb-6">
                 {historyLoading ? (
-                  <div className="flex justify-center py-10"><Loader2 className="animate-spin text-blue-500" /></div>
+                  <div className="flex justify-center py-10"><Loader2 className="animate-spin text-blue-500 w-10 h-10" /></div>
                 ) : merchantAbonos.length > 0 ? merchantAbonos.map(a => (
                   <div key={a.id} className={`p-5 rounded-2xl border-2 flex justify-between items-center transition-all ${a.archived ? 'bg-slate-900/40 border-slate-800 opacity-60 grayscale' : 'bg-slate-900 border-slate-700 shadow-sm'}`}>
                      <div>
                        <div className="flex items-center gap-2">
-                         <p className="text-[10px] font-black text-slate-500 uppercase">{new Date(a.date).toLocaleDateString()}</p>
+                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">{new Date(a.date).toLocaleDateString()}</p>
                          {a.archived && <span className="bg-slate-800 text-slate-500 px-2 py-0.5 rounded-full text-[8px] font-black uppercase border border-slate-700 tracking-tighter">Histórico</span>}
                        </div>
-                       <p className={`font-black text-sm uppercase ${a.archived ? 'text-slate-600' : 'text-white'}`}>Abono Recibido</p>
+                       <p className={`font-black text-sm uppercase mt-1 ${a.archived ? 'text-slate-600' : 'text-white'}`}>Abono Recibido</p>
                      </div>
-                     <p className={`text-xl font-black ${a.archived ? 'text-slate-600' : 'text-emerald-500'}`}>
+                     <p className={`text-xl font-black italic tracking-tighter ${a.archived ? 'text-slate-600' : 'text-emerald-500'}`}>
                         {a.archived ? '' : '+'} $ {Number(a.amount).toLocaleString()}
                      </p>
                   </div>
                 )) : (
-                  <div className="py-12 text-center border-4 border-dashed border-slate-700 rounded-3xl text-slate-500">No hay pagos registrados.</div>
+                  <div className="py-12 text-center border-4 border-dashed border-slate-700 rounded-3xl text-slate-500 flex flex-col items-center gap-3">
+                     <History size={40} className="opacity-20" />
+                     <p className="font-bold uppercase text-[10px] tracking-[0.2em]">No hay pagos registrados para este ciclo.</p>
+                  </div>
                 )}
              </div>
 
-             <button onClick={() => setHistoryMerchant(null)} className="w-full bg-slate-700 border-2 border-black p-4 rounded-2xl font-black text-white uppercase text-xs active:scale-95">Cerrar</button>
+             <button onClick={() => setHistoryMerchant(null)} className="w-full bg-slate-700 border-2 border-black p-4 rounded-2xl font-black text-white uppercase text-xs active:scale-95 transition-all">Cerrar Historial</button>
           </div>
         </div>
       )}
@@ -559,12 +746,12 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
       {selectedMerchant && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[500] flex items-center justify-center p-4">
           <form onSubmit={handleAbono} className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-md neobrutalism-shadow-lg animate-in zoom-in-95 text-white">
-            <h3 className="text-2xl font-black uppercase italic mb-8 tracking-tighter">Registrar <span className="text-blue-500">Cobro</span></h3>
+            <h3 className="text-2xl font-black uppercase italic mb-8 tracking-tighter text-white">Registrar <span className="text-blue-500">Cobro</span></h3>
             <input type="number" step="1" min="1" max={selectedMerchant.balance} required autoFocus value={abonoAmount} onChange={e => setAbonoAmount(e.target.value)} className="w-full bg-slate-900 border-4 border-black p-5 rounded-2xl font-black text-3xl text-emerald-500 text-center outline-none focus:border-blue-500 mb-8" placeholder="0" />
             <div className="grid grid-cols-2 gap-4">
-              <button type="button" onClick={() => setSelectedMerchant(null)} className="bg-slate-700 border-2 border-black p-4 rounded-2xl font-black uppercase text-xs active:scale-95">Cancelar</button>
-              <button type="submit" disabled={abonoLoading} className="bg-emerald-500 border-4 border-black p-4 rounded-2xl font-black text-white uppercase text-xs neobrutalism-shadow active:scale-95">
-                {abonoLoading ? <Loader2 className="animate-spin w-5 h-5" /> : 'Confirmar'}
+              <button type="button" onClick={() => setSelectedMerchant(null)} className="bg-slate-700 border-2 border-black p-4 rounded-2xl font-black uppercase text-xs active:scale-95 transition-all">Cancelar</button>
+              <button type="submit" disabled={abonoLoading} className="bg-emerald-500 border-4 border-black p-4 rounded-2xl font-black text-white uppercase text-xs neobrutalism-shadow active:scale-95 transition-all flex justify-center items-center">
+                {abonoLoading ? <Loader2 className="animate-spin w-5 h-5" /> : 'Confirmar Cobro'}
               </button>
             </div>
           </form>
