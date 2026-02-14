@@ -26,7 +26,7 @@ export const dataService = {
     
     let query = supabase.from('merchants').select(selectString, { count: 'exact' });
     
-    if (user.role === 'SECRETARY') query = query.eq('status', 'PAID');
+    if (user.role === 'SECRETARY') query = query.eq('balance', 0);
     
     if (user.role === 'DELEGATE') {
       if (user.assigned_zones && user.assigned_zones.length > 0) {
@@ -57,7 +57,7 @@ export const dataService = {
   getMerchantsReadyForAdmin: async () => {
     const { data, error } = await supabase
       .from('merchants')
-      .select('id, first_name, last_name_paterno')
+      .select('id, first_name, last_name_paterno, last_name_materno, giro')
       .eq('ready_for_admin', true)
       .eq('admin_received', false);
     if (error) throw error;
@@ -65,24 +65,44 @@ export const dataService = {
   },
 
   markAsReadyForAdmin: async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    
+    console.log("Intentando marcar como listos para admin:", ids);
     const { error } = await supabase
       .from('merchants')
-      .update({ ready_for_admin: true, admin_received: false })
+      .update({ 
+        ready_for_admin: true, 
+        admin_received: false 
+      })
       .in('id', ids);
-    if (error) throw error;
+    
+    if (error) {
+      console.error("Error en markAsReadyForAdmin:", error);
+      throw new Error(`Fallo en base de datos: ${error.message}`);
+    }
   },
 
   confirmAdminReceipt: async (ids: string[]) => {
-    const { data: current } = await supabase.from('merchants').select('id, delivery_count').in('id', ids);
+    const { data: current, error: fetchError } = await supabase
+      .from('merchants')
+      .select('id, delivery_count')
+      .in('id', ids);
+    
+    if (fetchError) throw fetchError;
     if (!current) return;
 
     for (const m of current) {
-      await supabase.from('merchants').update({
-        ready_for_admin: false,
-        admin_received: true,
-        admin_received_at: new Date().toISOString(),
-        delivery_count: (Number(m.delivery_count || 0) + 1)
-      }).eq('id', m.id);
+      const { error: updateError } = await supabase
+        .from('merchants')
+        .update({
+          ready_for_admin: false,
+          admin_received: true,
+          admin_received_at: new Date().toISOString(),
+          delivery_count: (Number(m.delivery_count || 0) + 1)
+        })
+        .eq('id', m.id);
+      
+      if (updateError) console.error(`Error confirmando recibo para ${m.id}:`, updateError);
     }
   },
 

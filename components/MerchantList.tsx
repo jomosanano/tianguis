@@ -60,7 +60,6 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Fix: Added fetchZones function which was missing
   const fetchZones = async () => {
     try {
       const data = await dataService.getZones();
@@ -133,9 +132,16 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     setLogisticsLoading(true);
     try {
       await dataService.markAsReadyForAdmin(Array.from(selectedForDelivery));
+      const count = selectedForDelivery.size;
       setSelectedForDelivery(new Set());
+      
+      // Forzar recarga local del listado para reflejar el cambio de estado
+      await fetchData(0, debouncedSearch, true);
+      
+      // Refrescar indicadores globales (Dashboard count)
       onRefresh(true);
-      alert(`¡Lote enviado!\n\nSe han marcado ${selectedForDelivery.size} credenciales como listas para el Administrador.`);
+      
+      alert(`¡Lote enviado!\n\nSe han marcado ${count} credenciales como listas para el Administrador.`);
     } catch (err) {
       alert("Error en logística.");
     } finally {
@@ -485,7 +491,8 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
               disabled={logisticsLoading}
               className="bg-white border-2 border-black px-6 py-3 rounded-2xl text-violet-700 font-black uppercase text-xs neobrutalism-shadow active:scale-95 disabled:opacity-50 flex items-center gap-2"
             >
-              {logisticsLoading ? <Loader2 className="animate-spin" /> : 'ENTREGAR LOTE'}
+              {logisticsLoading ? <Loader2 className="animate-spin" /> : <PackageCheck className="w-5 h-5" />} 
+              ENTREGAR LOTE
             </button>
           </div>
         </div>
