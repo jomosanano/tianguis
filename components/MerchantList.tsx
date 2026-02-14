@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, Loader2, Filter, Edit2, Trash2, X, Receipt, FilePlus2, ArrowRight, History, MapPin, DollarSign, User, AlertCircle, ChevronRight, AlertTriangle, ShieldAlert, IdCard, QrCode as QrIcon, CheckCircle2, Signature } from 'lucide-react';
+import { Search, Loader2, Edit2, Trash2, X, Receipt, FilePlus2, ArrowRight, History, MapPin, User, ShieldAlert, IdCard, StickyNote, MessageSquareText, PlusCircle, DollarSign, BadgePercent, Ruler, Plus, Calculator, Settings2, Archive, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { dataService } from '../services/dataService';
-import { Merchant, Abono, User as UserType } from '../types';
+import { Merchant, Abono, User as UserType, Zone, ZoneAssignment } from '../types';
 
 interface MerchantListProps {
   user: UserType | null;
@@ -15,11 +15,13 @@ interface MerchantListProps {
 
 const PAGE_SIZE = 12;
 type FilterType = 'ALL' | 'NO_PAYMENTS' | 'IN_PROGRESS' | 'LIQUIDATED';
+const WORK_DAYS = ['Diario', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo', 'Fines de Semana'];
 
 export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onEdit, delegatesCanCollect = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -30,16 +32,21 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
   const [abonoLoading, setAbonoLoading] = useState(false);
   
   const [historyMerchant, setHistoryMerchant] = useState<Merchant | null>(null);
-  const [merchantAbonos, setMerchantAbonos] = useState<Abono[]>([]);
+  const [merchantAbonos, setMerchantAbonos] = useState<(Abono & { archived?: boolean })[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  
-  const [showCredential, setShowCredential] = useState<Merchant | null>(null);
-  const [isFlipped, setIsFlipped] = useState(false);
   
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  const loaderRef = useRef<HTMLDivElement>(null);
+  const [adjustmentMerchant, setAdjustmentMerchant] = useState<Merchant | null>(null);
+  const [showSyncWarning, setShowSyncWarning] = useState(false);
+  const [adjAssignments, setAdjAssignments] = useState<ZoneAssignment[]>([]);
+  const [adjLoading, setAdjLoading] = useState(false);
+  
+  const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
+
+  const isDelegate = user?.role === 'DELEGATE';
+  const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 400);
@@ -51,7 +58,15 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     setPage(0);
     setHasMore(true);
     fetchData(0, debouncedSearch, true);
+    if (isAdmin) fetchZones();
   }, [debouncedSearch, user]);
+
+  const fetchZones = async () => {
+    try {
+      const data = await dataService.getZones();
+      setZones(data);
+    } catch (e) { console.error(e); }
+  };
 
   const fetchData = async (pageNum: number, search: string, isNew: boolean = false) => {
     if (loading) return;
@@ -96,19 +111,122 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     });
   }, [merchants, activeFilter]);
 
+  const handleOpenAdjustment = (m: Merchant) => {
+    if (m.balance > 0) {
+      setAdjustmentMerchant(m);
+      setShowSyncWarning(true);
+    } else {
+      setAdjustmentMerchant(m);
+      setAdjAssignments(m.assignments.map(a => ({ ...a })));
+      setShowSyncWarning(false);
+    }
+  };
+
+  const confirmSyncWarning = () => {
+    if (adjustmentMerchant) {
+      setAdjAssignments(adjustmentMerchant.assignments.map(a => ({ ...a })));
+      setShowSyncWarning(false);
+    }
+  };
+
+  const addAdjAssignment = () => {
+    if (zones.length === 0) return;
+    setAdjAssignments([...adjAssignments, { zone_id: zones[0].id, meters: 1, calculated_cost: 0, work_day: 'Diario' }]);
+  };
+
+  const removeAdjAssignment = (index: number) => {
+    setAdjAssignments(adjAssignments.filter((_, i) => i !== index));
+  };
+
+  const updateAdjAssignment = (index: number, field: keyof ZoneAssignment, value: any) => {
+    const newArr = [...adjAssignments];
+    newArr[index] = { ...newArr[index], [field]: value };
+    setAdjAssignments(newArr);
+  };
+
+  const saveManualAdjustment = async () => {
+    if (!adjustmentMerchant) return;
+    setAdjLoading(true);
+    
+    try {
+      const prevBalance = Number(adjustmentMerchant.balance);
+      const nuevaDeudaTotal = adjAssignments.reduce((sum, a) => sum + (Number(a.calculated_cost) || 0), 0);
+      
+      // 1. Archivar abonos anteriores
+      const { error: archiveError } = await supabase
+        .from('abonos')
+        .update({ archived: true })
+        .eq('merchant_id', adjustmentMerchant.id);
+      
+      if (archiveError) throw archiveError;
+
+      // 2. Preparar nota automática si había saldo vivo
+      let newNote = adjustmentMerchant.note || '';
+      if (prevBalance > 0) {
+        const syncNote = `[Sincronización manual - Fecha: ${new Date().toLocaleDateString()} - Deuda pendiente anterior: $${prevBalance.toLocaleString()}]`;
+        newNote = newNote ? `${newNote}\n${syncNote}` : syncNote;
+      }
+
+      // 3. Reset y Sincronización
+      const now = new Date().toISOString();
+      const { error: resetError } = await supabase
+        .from('merchants')
+        .update({ 
+          balance_reset_at: now,
+          total_debt: nuevaDeudaTotal,
+          balance: nuevaDeudaTotal,
+          note: newNote
+        })
+        .eq('id', adjustmentMerchant.id);
+      
+      if (resetError) throw resetError;
+
+      // 4. Actualizar asignaciones
+      await supabase.from('zone_assignments').delete().eq('merchant_id', adjustmentMerchant.id);
+      
+      if (adjAssignments.length > 0) {
+        const cleaned = adjAssignments.map(a => ({
+          merchant_id: adjustmentMerchant.id,
+          zone_id: a.zone_id,
+          meters: a.meters || 0,
+          calculated_cost: a.calculated_cost || 0,
+          work_day: a.work_day || 'Ciclo Nuevo'
+        }));
+        const { error: insertError } = await supabase.from('zone_assignments').insert(cleaned);
+        if (insertError) throw insertError;
+      }
+
+      setAdjustmentMerchant(null);
+      onRefresh(true);
+      alert("¡SINCRONIZACIÓN EXITOSA!\n\nLos abonos anteriores han sido archivados. El comerciante inicia este nuevo ciclo con saldo limpio.");
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setAdjLoading(false);
+    }
+  };
+
   const handleAbono = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMerchant || !abonoAmount) return;
     const amount = parseFloat(abonoAmount);
+    
+    if (amount > selectedMerchant.balance) {
+      alert("El monto supera el saldo pendiente.");
+      return;
+    }
+
     setAbonoLoading(true);
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       const { error } = await supabase.from('abonos').insert({ 
         merchant_id: selectedMerchant.id, 
         amount, 
-        recorded_by: authUser?.id 
+        recorded_by: authUser?.id,
+        archived: false
       });
       if (error) throw error;
+      
       setAbonoAmount('');
       setSelectedMerchant(null);
       onRefresh(true);
@@ -119,15 +237,16 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     }
   };
 
-  const fetchHistory = async (merchant: Merchant) => {
+  const openHistory = async (merchant: Merchant) => {
+    setMerchantAbonos([]);
     setHistoryMerchant(merchant);
     setHistoryLoading(true);
+    
     try {
       const { data, error } = await supabase
         .from('abonos')
         .select('*')
         .eq('merchant_id', merchant.id)
-        .eq('archived', false)
         .order('date', { ascending: false });
       
       if (error) throw error;
@@ -151,277 +270,304 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     }
   };
 
+  const loaderRef = useRef<HTMLDivElement>(null);
+  const totalAbonadoActivo = merchantAbonos.filter(a => !a.archived).reduce((s, a) => s + Number(a.amount), 0);
+  const totalNuevaDeuda = adjAssignments.reduce((sum, a) => sum + (Number(a.calculated_cost) || 0), 0);
+
   return (
     <div className="space-y-8 pb-32">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 text-white">
         <div>
-          <h2 className="text-4xl font-black text-white uppercase italic tracking-tighter">Directorio <span className="text-blue-500">ATCEM</span></h2>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Gestión de Expedientes y Cobranza</p>
+          <h2 className="text-4xl font-black uppercase italic tracking-tighter">
+            {isDelegate ? 'Mi Zona' : 'Directorio'} <span className="text-blue-500">ATCEM</span>
+          </h2>
         </div>
         <div className="relative w-full md:w-96">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input type="text" placeholder="Buscar por nombre o giro..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-800 border-4 border-black p-4 pl-12 rounded-2xl font-black outline-none focus:border-blue-500 neobrutalism-shadow" />
+          <input type="text" placeholder="Nombre o giro..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-800 border-4 border-black p-4 pl-12 rounded-2xl font-black outline-none focus:border-blue-500 neobrutalism-shadow" />
         </div>
       </div>
 
+      {/* Grid de Comerciantes */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredMerchants.map(m => (
-          <div key={m.id} className="bg-[#2a1b15] border-2 border-[#eab308] rounded-[2.5rem] p-6 flex flex-col gap-6 relative group neobrutalism-shadow transition-transform hover:scale-[1.01]">
-            <div className="flex gap-4">
-              <div className="w-20 h-20 rounded-2xl border-2 border-black overflow-hidden bg-white shadow-inner flex-shrink-0">
-                <img src={m.profile_photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.first_name)}`} className="w-full h-full object-cover" />
-              </div>
-              <div className="flex-1 min-w-0 pr-8">
-                <h3 className="font-black uppercase truncate text-xl text-white tracking-tighter">{m.first_name} {m.last_name_paterno}</h3>
-                <div className="mt-1 flex items-center gap-2">
-                   <div className="bg-[#1e293b] px-2 py-0.5 rounded-lg border border-slate-700">
-                     <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">{m.giro}</p>
-                   </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button onClick={() => setShowCredential(m)} className="p-2 bg-blue-600 border-2 border-black rounded-xl text-white active:scale-90" title="Ver Credencial"><IdCard size={14}/></button>
-                  <button onClick={() => fetchHistory(m)} className="p-2 bg-slate-800 border-2 border-black rounded-xl text-white active:scale-90" title="Ver Historial"><Receipt size={14}/></button>
-                  <button onClick={() => onEdit(m)} className="p-2 bg-slate-800 border-2 border-black rounded-xl text-white active:scale-90" title="Renovar"><Edit2 size={14}/></button>
-                  <button onClick={() => setDeleteConfirmId(m.id)} className="p-2 bg-slate-800 border-2 border-black rounded-xl text-white active:scale-90" title="Eliminar"><Trash2 size={14}/></button>
-                </div>
-              </div>
-            </div>
+        {filteredMerchants.map(m => {
+          const isTooltipActive = activeTooltipId === m.id;
+          const balance = Number(m.balance);
+          const totalDebt = Number(m.total_debt);
+          
+          // Lógica de semaforización
+          let statusBorderClass = 'border-slate-700';
+          let statusLabel = 'SIN DEUDA';
+          let accentColorClass = 'text-slate-400';
 
-            <div className="bg-[#1e293b]/50 border-2 border-slate-700 p-6 rounded-[2rem] flex justify-between items-center relative overflow-hidden">
-               <span className="text-xs font-black text-slate-400 uppercase tracking-widest z-10">Saldo Actual</span>
-               <p className="text-3xl font-black text-rose-500 italic tracking-tighter z-10">${Number(m.balance || 0).toLocaleString()}</p>
-               <div className="absolute right-0 top-0 bottom-0 w-24 bg-rose-500/5 blur-xl -mr-12" />
-            </div>
+          if (totalDebt > 0) {
+            if (balance === 0) {
+              statusBorderClass = 'border-blue-600';
+              statusLabel = 'LIQUIDADO';
+              accentColorClass = 'text-blue-500';
+            } else if (balance < totalDebt) {
+              statusBorderClass = 'border-amber-500';
+              statusLabel = 'EN PROCESO';
+              accentColorClass = 'text-amber-500';
+            } else {
+              statusBorderClass = 'border-rose-600';
+              statusLabel = 'PENDIENTE';
+              accentColorClass = 'text-rose-500';
+            }
+          }
 
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setSelectedMerchant(m)} 
-                disabled={m.balance <= 0} 
-                className="flex-1 bg-blue-600 border-4 border-black p-4 rounded-2xl font-black text-xs uppercase tracking-widest text-white neobrutalism-shadow active:scale-95 disabled:opacity-50"
-              >
-                COBRAR ABONO
-              </button>
-              <button 
-                onClick={() => fetchHistory(m)}
-                className="p-4 bg-slate-800 border-4 border-black rounded-2xl text-white neobrutalism-shadow active:scale-95"
-              >
-                <ChevronRight size={20} />
-              </button>
+          return (
+            <div key={m.id} className={`bg-[#1e1b1b] border-4 ${statusBorderClass} rounded-[2.5rem] p-6 flex flex-col gap-6 relative neobrutalism-shadow transition-all hover:scale-[1.01]`}>
+              <div className="flex gap-4">
+                <div className="relative w-20 h-20 flex-shrink-0">
+                  <div className="w-full h-full rounded-2xl border-2 border-black overflow-hidden bg-white">
+                    <img src={m.profile_photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.first_name)}`} className="w-full h-full object-cover" />
+                  </div>
+                  
+                  {/* Icono de Nota Interactiva */}
+                  {m.note && (
+                    <div 
+                      className="absolute -top-2 -right-2 bg-amber-500 p-1.5 rounded-full border-2 border-black shadow-lg animate-subtle-blink cursor-help z-20"
+                      onMouseEnter={() => setActiveTooltipId(m.id)}
+                      onMouseLeave={() => setActiveTooltipId(null)}
+                      onClick={() => setActiveTooltipId(activeTooltipId === m.id ? null : m.id)}
+                    >
+                      <StickyNote className="w-4 h-4 text-black" />
+                      
+                      {/* Tooltip de Nota */}
+                      {isTooltipActive && (
+                        <div className="absolute left-full top-0 ml-4 w-56 bg-amber-400 border-4 border-black p-4 rounded-2xl neobrutalism-shadow-lg z-50 animate-in zoom-in-95 pointer-events-none sm:pointer-events-auto">
+                           <div className="flex items-center gap-2 mb-2 border-b-2 border-black/20 pb-1">
+                              <StickyNote size={14} className="text-black" />
+                              <span className="text-[10px] font-black uppercase text-black">Expediente</span>
+                           </div>
+                           <p className="text-[11px] font-bold text-black leading-tight whitespace-pre-line">
+                              {m.note}
+                           </p>
+                           {/* Flecha del tooltip */}
+                           <div className="absolute top-4 -left-3 w-0 h-0 border-t-[8px] border-t-transparent border-r-[12px] border-r-black border-b-[8px] border-b-transparent"></div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0 pr-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-black uppercase truncate text-xl text-white tracking-tighter leading-tight">
+                        {m.first_name}<br/>
+                        <span className="text-slate-400 text-sm font-bold">{m.last_name_paterno}</span>
+                      </h3>
+                    </div>
+                    <div className={`px-2 py-0.5 rounded-lg border-2 border-black text-[8px] font-black uppercase tracking-tighter bg-black/40 ${accentColorClass}`}>
+                       {statusLabel}
+                    </div>
+                  </div>
+                  
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="bg-slate-800 border border-slate-700 px-3 py-1 rounded-lg">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{m.giro}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button onClick={() => openHistory(m)} title="Historial" className="p-2 bg-slate-800 border-2 border-black rounded-xl text-white active:scale-90 shadow-sm"><History size={14}/></button>
+                    {isAdmin && (
+                      <>
+                        <button onClick={() => handleOpenAdjustment(m)} title="Sincronizar Ciclo" className="p-2 bg-violet-600 border-2 border-black rounded-xl text-white active:scale-90 shadow-sm"><Archive size={14}/></button>
+                        <button onClick={() => onEdit(m)} title="Editar" className="p-2 bg-emerald-600 border-2 border-black rounded-xl text-white active:scale-90 shadow-sm"><Edit2 size={14}/></button>
+                        <button onClick={() => setDeleteConfirmId(m.id)} title="Borrar" className="p-2 bg-rose-800 border-2 border-black rounded-xl text-white active:scale-90 shadow-sm"><Trash2 size={14}/></button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className={`bg-[#000]/30 border-2 ${statusBorderClass.replace('border-', 'border-opacity-30 border-')} p-6 rounded-[2rem] flex justify-between items-center relative overflow-hidden`}>
+                 <div className="relative z-10">
+                   <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Saldo Vivo</span>
+                   <p className={`text-3xl font-black italic tracking-tighter ${accentColorClass}`}>
+                     ${Number(m.balance || 0).toLocaleString()}
+                   </p>
+                 </div>
+                 <div className="opacity-5 absolute -right-2 -bottom-2">
+                    <DollarSign size={80} />
+                 </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => m.balance > 0 ? setSelectedMerchant(m) : openHistory(m)} 
+                  className={`flex-1 border-4 border-black p-4 rounded-2xl font-black text-xs uppercase tracking-widest text-white neobrutalism-shadow active:scale-95 transition-colors ${
+                    balance === 0 ? 'bg-blue-600' : balance < totalDebt ? 'bg-amber-500' : 'bg-rose-600'
+                  }`}
+                >
+                  {balance === 0 ? 'LIQUIDADO' : balance < totalDebt ? 'CONTINUAR ABONO' : 'COBRAR ABONO'}
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div ref={loaderRef} className="h-20 flex justify-center items-center">{loading && <Loader2 className="animate-spin text-blue-500" />}</div>
 
-      {/* MODAL CREDENCIAL 3D */}
-      {showCredential && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[500] flex items-center justify-center p-4">
-           <div className="w-full max-w-[400px] flex flex-col items-center gap-6">
-              <div className="flex justify-between w-full px-4 items-center">
-                 <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-1.5 rounded-full border border-slate-700">
-                    <History size={12} className="text-blue-400 animate-pulse" />
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Toca para girar credencial</p>
-                 </div>
-                 <button onClick={() => { setShowCredential(null); setIsFlipped(false); }} className="p-2 bg-rose-600 border-2 border-black rounded-xl text-white active:scale-90 hover:bg-rose-500 transition-colors shadow-lg"><X /></button>
+      {/* Modal de Advertencia por Saldo Vivo */}
+      {showSyncWarning && adjustmentMerchant && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[600] flex items-center justify-center p-4">
+          <div className="bg-slate-800 border-4 border-black p-10 rounded-[3rem] w-full max-w-md neobrutalism-shadow-lg text-center animate-in zoom-in-95">
+            <div className="bg-amber-500 w-20 h-20 rounded-3xl border-4 border-black flex items-center justify-center mx-auto mb-8 neobrutalism-shadow -rotate-6">
+              <AlertTriangle className="w-10 h-10 text-black" />
+            </div>
+            
+            <h3 className="text-3xl font-black mb-4 uppercase tracking-tighter text-amber-500 italic">¡Atención! Saldo Vivo</h3>
+            <p className="font-bold text-slate-400 text-sm uppercase leading-relaxed mb-4">
+              El comerciante aún tiene un saldo pendiente de <span className="text-white text-lg">${Number(adjustmentMerchant.balance).toLocaleString()}</span>.
+            </p>
+            <p className="font-bold text-slate-500 text-[10px] uppercase tracking-widest mb-10">
+              Si continúa, este saldo se archivará y se creará una nota informativa automática en su expediente.
+            </p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={() => { setAdjustmentMerchant(null); setShowSyncWarning(false); }} 
+                className="bg-slate-700 border-4 border-black p-5 rounded-2xl font-black uppercase text-xs active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmSyncWarning}
+                className="bg-amber-500 border-4 border-black p-5 rounded-2xl font-black uppercase text-xs text-black neobrutalism-shadow active:scale-95"
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Sincronización (Archivo Lógico) */}
+      {adjustmentMerchant && !showSyncWarning && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[550] flex items-center justify-center p-4">
+           <div className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-lg neobrutalism-shadow-lg animate-in zoom-in-95 text-white flex flex-col max-h-[90vh]">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-2xl font-black uppercase italic tracking-tighter leading-none text-violet-400">Archivar y <span className="text-white">Reiniciar</span></h3>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Los abonos previos pasarán al historial histórico</p>
+                </div>
+                <button type="button" onClick={() => setAdjustmentMerchant(null)} className="p-3 bg-slate-700 border-2 border-black rounded-2xl active:scale-90 transition-transform"><X size={20}/></button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar mb-6">
+                {adjAssignments.map((a, i) => (
+                  <div key={i} className="bg-slate-900/50 border-2 border-black p-4 rounded-3xl relative">
+                    <button onClick={() => removeAdjAssignment(i)} className="absolute -top-2 -right-2 p-1.5 bg-rose-600 border-2 border-black rounded-xl text-white active:scale-75"><Trash2 size={12}/></button>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <select value={a.zone_id} onChange={e => updateAdjAssignment(i, 'zone_id', e.target.value)} className="bg-slate-800 border-2 border-black rounded-xl p-2.5 font-bold text-xs outline-none">
+                        {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                      </select>
+                      <select value={a.work_day} onChange={e => updateAdjAssignment(i, 'work_day', e.target.value)} className="bg-slate-800 border-2 border-black rounded-xl p-2.5 font-bold text-xs outline-none">
+                        {WORK_DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <input type="number" step="0.1" value={a.meters} onChange={e => updateAdjAssignment(i, 'meters', parseFloat(e.target.value))} className="bg-slate-800 border-2 border-black rounded-xl p-2.5 font-black text-sm outline-none" placeholder="MTS" />
+                      <input type="number" value={a.calculated_cost} onChange={e => updateAdjAssignment(i, 'calculated_cost', parseFloat(e.target.value))} className="bg-slate-800 border-2 border-violet-500/50 rounded-xl p-2.5 font-black text-sm text-violet-400 outline-none" placeholder="COSTO" />
+                    </div>
+                  </div>
+                ))}
+                
+                <button onClick={addAdjAssignment} className="w-full border-4 border-dashed border-slate-700 p-4 rounded-3xl flex items-center justify-center gap-2 font-black text-[10px] uppercase text-slate-500 hover:text-violet-500 transition-all">
+                  <Plus size={16}/> Nueva Asignación
+                </button>
               </div>
 
-              <div 
-                className="credential-container aspect-[5/8] w-full" 
-                onClick={() => setIsFlipped(!isFlipped)}
-              >
-                <div className={`credential-inner ${isFlipped ? 'flipped' : ''}`}>
-                  {/* FRENTE */}
-                  <div className="credential-front bg-slate-800 border-4 border-black p-6 flex flex-col items-center shadow-2xl relative overflow-hidden">
-                    <div className="absolute inset-0 bg-security-grid pointer-events-none opacity-20"></div>
-                    <div className="w-full flex justify-between items-start mb-6 z-10">
-                       <div className="bg-blue-600 p-2.5 rounded-xl border-2 border-black shadow-lg">
-                          <span className="text-white font-black italic text-2xl leading-none">A</span>
-                       </div>
-                       <div className="text-right">
-                          <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Gobernación Territorial</p>
-                          <p className="text-[12px] font-black text-white uppercase italic tracking-tighter">ATCEM SYSTEMS</p>
-                       </div>
-                    </div>
-
-                    <div className="w-48 h-48 rounded-full p-1.5 bg-gradient-to-tr from-blue-600 via-slate-700 to-blue-400 border-4 border-black mb-6 neobrutalism-shadow overflow-hidden z-10">
-                       <img src={showCredential.profile_photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(showCredential.first_name)}&background=020617&color=fff`} className="w-full h-full object-cover rounded-full" />
-                    </div>
-
-                    <div className="z-10 text-center w-full">
-                      <h2 className="text-2xl font-black uppercase italic tracking-tighter text-white leading-tight mb-2">
-                         {showCredential.first_name}<br/>{showCredential.last_name_paterno}
-                      </h2>
-                      <div className="inline-block bg-slate-900/80 backdrop-blur-sm border-2 border-black px-4 py-1.5 rounded-xl mb-6 shadow-inner">
-                         <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">{showCredential.giro}</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-auto w-full p-4 bg-slate-900 border-2 border-black rounded-2xl flex items-center justify-between z-10 neobrutalism-shadow">
-                       <div className="flex flex-col">
-                          <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Estatus de Registro</span>
-                          <span className={`text-[11px] font-black uppercase tracking-tighter ${showCredential.balance <= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                             {showCredential.balance <= 0 ? '✓ AL CORRIENTE' : '⚠ PAGO PENDIENTE'}
-                          </span>
-                       </div>
-                       <CheckCircle2 className={showCredential.balance <= 0 ? 'text-emerald-500' : 'text-slate-800'} size={24} />
-                    </div>
-                    
-                    <div className="mt-4 text-[7px] font-black text-slate-600 uppercase text-center w-full tracking-[0.3em] z-10">
-                       ID-REF: {showCredential.id.slice(0, 18)} | 2026-A
-                    </div>
+              <div className="pt-6 border-t-2 border-slate-700 space-y-6">
+                <div className="flex justify-between items-center bg-slate-900 p-6 rounded-3xl border-4 border-black">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Nuevo Saldo Inicial</p>
+                    <p className="text-3xl font-black italic tracking-tighter text-white">${totalNuevaDeuda.toLocaleString()}</p>
                   </div>
+                  <Archive className="text-violet-500 w-8 h-8 opacity-50" />
+                </div>
 
-                  {/* VUELTA */}
-                  <div className="credential-back bg-slate-900 border-4 border-black p-6 flex flex-col items-center shadow-2xl relative overflow-hidden">
-                    <div className="absolute inset-0 bg-guilloche pointer-events-none opacity-10"></div>
-                    
-                    <div className="w-full text-center z-10 mb-6">
-                       <p className="text-[9px] font-black text-blue-500 uppercase tracking-[0.4em] mb-4">VALIDACIÓN DE AUDITORÍA</p>
-                       <div className="bg-white p-3 rounded-2xl border-4 border-black mx-auto inline-block neobrutalism-shadow">
-                          <img 
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=ATCEM-ID-${showCredential.id}&bgcolor=ffffff&color=000000&margin=1`} 
-                            className="w-32 h-32" 
-                          />
-                       </div>
-                    </div>
-
-                    <div className="w-full space-y-3 z-10 flex-1 overflow-hidden">
-                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-800 pb-2">
-                          <MapPin size={12} className="text-orange-500" /> Zonas y Metraje
-                       </h4>
-                       <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar">
-                          {showCredential.assignments.map((a, i) => (
-                            <div key={i} className="bg-slate-800/50 border border-slate-700 p-2.5 rounded-xl flex justify-between items-center group">
-                               <div className="flex flex-col">
-                                 <span className="text-[10px] font-black text-white uppercase tracking-tighter truncate max-w-[120px]">{(a as any).zones?.name || 'Zona General'}</span>
-                                 <span className="text-[8px] font-bold text-slate-500">{a.work_day}</span>
-                               </div>
-                               <div className="bg-blue-600 px-2 py-1 rounded-lg border border-black shadow-sm">
-                                 <span className="text-[9px] font-black text-white">{a.meters} mts</span>
-                               </div>
-                            </div>
-                          ))}
-                       </div>
-                    </div>
-
-                    <div className="w-full mt-6 space-y-2 z-10">
-                       <div className="flex justify-between items-end mb-1 px-1">
-                          <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Firma Autorizada ATCEM</span>
-                          <Signature size={12} className="text-slate-600" />
-                       </div>
-                       <div className="w-full h-16 bg-white border-4 border-black rounded-xl flex items-end justify-center pb-2 relative shadow-inner">
-                          <div className="absolute inset-0 opacity-5 pointer-events-none flex items-center justify-center italic text-black font-black text-[10px] uppercase tracking-[0.2em]">VALIDADO POR ADMINISTRACIÓN</div>
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] relative z-10">Sello Digital ATCEM</span>
-                       </div>
-                    </div>
-
-                    <div className="w-full mt-4 pt-3 border-t border-slate-800 flex flex-col items-center z-10">
-                       <p className="text-[7px] font-black text-slate-600 text-center leading-relaxed tracking-wider">
-                          DOCUMENTO OFICIAL DEL DEPARTAMENTO DE GOBERNACIÓN. <br/>
-                          TODO USO INDEBIDO SERÁ SANCIONADO CONFORME A LA LEY.
-                       </p>
-                    </div>
-                  </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <button onClick={() => setAdjustmentMerchant(null)} className="bg-slate-700 border-2 border-black p-4 rounded-2xl font-black uppercase text-xs active:scale-95">Descartar</button>
+                  <button 
+                    onClick={saveManualAdjustment} 
+                    disabled={adjLoading} 
+                    className="bg-violet-600 border-4 border-black p-4 rounded-2xl font-black text-white uppercase text-xs neobrutalism-shadow active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    {adjLoading ? <Loader2 className="animate-spin w-5 h-5" /> : 'ARCHIVAR Y RESETEAR'}
+                  </button>
                 </div>
               </div>
            </div>
         </div>
       )}
 
-      {/* MODAL COBRO */}
+      {/* Historial con Archivados */}
+      {historyMerchant && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[500] flex items-center justify-center p-4">
+          <div className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-2xl max-h-[90vh] flex flex-col neobrutalism-shadow-lg text-white">
+             <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className="text-2xl font-black uppercase italic tracking-tighter">Historial de <span className="text-blue-500">Pagos</span></h3>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{historyMerchant.full_name}</p>
+                </div>
+                <button onClick={() => setHistoryMerchant(null)} className="p-3 bg-rose-600 border-2 border-black rounded-2xl text-white active:scale-90"><X /></button>
+             </div>
+
+             <div className="grid grid-cols-2 gap-4 mb-8 text-center text-xs">
+                <div className="bg-emerald-500/10 border-2 border-emerald-500/30 p-4 rounded-2xl">
+                  <p className="font-black text-emerald-500">RECAUDADO VIVO</p>
+                  <p className="text-xl font-black">${totalAbonadoActivo.toLocaleString()}</p>
+                </div>
+                <div className="bg-rose-500/10 border-2 border-rose-500/30 p-4 rounded-2xl">
+                  <p className="font-black text-rose-500">SALDO PENDIENTE</p>
+                  <p className="text-xl font-black">${Number(historyMerchant.balance).toLocaleString()}</p>
+                </div>
+             </div>
+
+             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2 mb-6">
+                {historyLoading ? (
+                  <div className="flex justify-center py-10"><Loader2 className="animate-spin text-blue-500" /></div>
+                ) : merchantAbonos.length > 0 ? merchantAbonos.map(a => (
+                  <div key={a.id} className={`p-5 rounded-2xl border-2 flex justify-between items-center transition-all ${a.archived ? 'bg-slate-900/40 border-slate-800 opacity-60 grayscale' : 'bg-slate-900 border-slate-700 shadow-sm'}`}>
+                     <div>
+                       <div className="flex items-center gap-2">
+                         <p className="text-[10px] font-black text-slate-500 uppercase">{new Date(a.date).toLocaleDateString()}</p>
+                         {a.archived && <span className="bg-slate-800 text-slate-500 px-2 py-0.5 rounded-full text-[8px] font-black uppercase border border-slate-700 tracking-tighter">Histórico</span>}
+                       </div>
+                       <p className={`font-black text-sm uppercase ${a.archived ? 'text-slate-600' : 'text-white'}`}>Abono Recibido</p>
+                     </div>
+                     <p className={`text-xl font-black ${a.archived ? 'text-slate-600' : 'text-emerald-500'}`}>
+                        {a.archived ? '' : '+'} $ {Number(a.amount).toLocaleString()}
+                     </p>
+                  </div>
+                )) : (
+                  <div className="py-12 text-center border-4 border-dashed border-slate-700 rounded-3xl text-slate-500">No hay pagos registrados.</div>
+                )}
+             </div>
+
+             <button onClick={() => setHistoryMerchant(null)} className="w-full bg-slate-700 border-2 border-black p-4 rounded-2xl font-black text-white uppercase text-xs active:scale-95">Cerrar</button>
+          </div>
+        </div>
+      )}
+
       {selectedMerchant && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[300] flex items-center justify-center p-4">
-          <form onSubmit={handleAbono} className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-md neobrutalism-shadow-lg animate-in zoom-in-95">
-            <h3 className="text-2xl font-black uppercase italic mb-8 tracking-tighter text-white">Registrar <span className="text-blue-500">Cobro</span></h3>
-            <div className="p-4 bg-slate-900 border-2 border-black rounded-2xl mb-6 flex justify-between items-center">
-              <div>
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Comerciante</p>
-                <p className="font-black text-white uppercase italic text-sm">{selectedMerchant.full_name}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Adeudo</p>
-                <p className="font-black text-rose-500">${selectedMerchant.balance.toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase ml-1 tracking-widest">Monto a abonar</label>
-              <input type="number" step="1" required autoFocus value={abonoAmount} onChange={e => setAbonoAmount(e.target.value)} className="w-full bg-slate-900 border-4 border-black p-5 rounded-2xl font-black text-3xl text-emerald-500 text-center outline-none focus:border-blue-500" placeholder="0" />
-            </div>
-            <div className="grid grid-cols-2 gap-4 mt-8">
-              <button type="button" onClick={() => setSelectedMerchant(null)} className="bg-slate-700 border-2 border-black p-4 rounded-2xl font-black uppercase text-xs text-white active:scale-95 transition-all">Cancelar</button>
-              <button type="submit" disabled={abonoLoading} className="bg-emerald-500 border-4 border-black p-4 rounded-2xl font-black text-white uppercase text-xs neobrutalism-shadow active:scale-95 flex items-center justify-center gap-2">
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[500] flex items-center justify-center p-4">
+          <form onSubmit={handleAbono} className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-md neobrutalism-shadow-lg animate-in zoom-in-95 text-white">
+            <h3 className="text-2xl font-black uppercase italic mb-8 tracking-tighter">Registrar <span className="text-blue-500">Cobro</span></h3>
+            <input type="number" step="1" min="1" max={selectedMerchant.balance} required autoFocus value={abonoAmount} onChange={e => setAbonoAmount(e.target.value)} className="w-full bg-slate-900 border-4 border-black p-5 rounded-2xl font-black text-3xl text-emerald-500 text-center outline-none focus:border-blue-500 mb-8" placeholder="0" />
+            <div className="grid grid-cols-2 gap-4">
+              <button type="button" onClick={() => setSelectedMerchant(null)} className="bg-slate-700 border-2 border-black p-4 rounded-2xl font-black uppercase text-xs active:scale-95">Cancelar</button>
+              <button type="submit" disabled={abonoLoading} className="bg-emerald-500 border-4 border-black p-4 rounded-2xl font-black text-white uppercase text-xs neobrutalism-shadow active:scale-95">
                 {abonoLoading ? <Loader2 className="animate-spin w-5 h-5" /> : 'Confirmar'}
               </button>
             </div>
           </form>
-        </div>
-      )}
-
-      {/* MODAL HISTORIAL */}
-      {historyMerchant && (() => {
-        const totalAbonadoCiclo = merchantAbonos.reduce((s, a) => s + Number(a.amount), 0);
-        
-        return (
-          <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[300] flex items-center justify-center p-4">
-            <div className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-2xl max-h-[90vh] flex flex-col neobrutalism-shadow-lg animate-in slide-in-from-bottom-8">
-               <div className="flex justify-between items-center mb-8">
-                  <div>
-                    <h3 className="text-2xl font-black uppercase italic tracking-tighter text-white">Pagos del <span className="text-blue-500">Expediente</span></h3>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{historyMerchant.full_name}</p>
-                  </div>
-                  <button onClick={() => setHistoryMerchant(null)} className="p-3 bg-rose-600 border-2 border-black rounded-2xl text-white active:scale-90 shadow-lg"><X /></button>
-               </div>
-
-               <div className="grid grid-cols-3 gap-4 mb-8 text-center">
-                  <div className="bg-blue-600/10 border-2 border-blue-600/30 p-4 rounded-2xl"><p className="text-[8px] font-black text-blue-400 uppercase tracking-widest mb-1">TOTAL DEUDA</p><p className="text-xl font-black text-blue-400">${historyMerchant.total_debt.toLocaleString()}</p></div>
-                  <div className="bg-emerald-500/10 border-2 border-emerald-500/30 p-4 rounded-2xl"><p className="text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1">ABONADO CICLO</p><p className="text-xl font-black text-emerald-500">${totalAbonadoCiclo.toLocaleString()}</p></div>
-                  <div className="bg-rose-500/10 border-2 border-rose-500/30 p-4 rounded-2xl"><p className="text-[8px] font-black text-rose-500 uppercase tracking-widest mb-1">SALDO ACTUAL</p><p className="text-xl font-black text-rose-500">${historyMerchant.balance.toLocaleString()}</p></div>
-               </div>
-
-               <div className="p-4 bg-slate-900 border border-amber-500/30 rounded-2xl mb-4 text-center text-[9px] font-black text-amber-500 uppercase">
-                  CICLO ACTUAL - SOLO ABONOS VIGENTES
-               </div>
-
-               <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
-                  {merchantAbonos.length > 0 ? merchantAbonos.map(a => (
-                    <div key={a.id} className="bg-slate-900 p-5 rounded-2xl border-2 border-slate-700 flex justify-between items-center group">
-                       <div className="flex items-center gap-4">
-                         <div className="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20"><Receipt className="text-emerald-500 w-5 h-5" /></div>
-                         <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{new Date(a.date).toLocaleDateString()}</p><p className="font-black text-sm uppercase tracking-tighter text-white">Abono Recibido</p></div>
-                       </div>
-                       <p className="text-xl font-black text-emerald-500 italic tracking-tighter">+$ {Number(a.amount).toLocaleString()}</p>
-                    </div>
-                  )) : (
-                    <div className="py-20 text-center border-4 border-dashed border-slate-700 rounded-3xl">
-                       <p className="text-xs font-black text-slate-500 uppercase tracking-widest italic">Sin abonos en el ciclo actual.</p>
-                    </div>
-                  )}
-               </div>
-
-               <div className="mt-8 pt-6 border-t-2 border-slate-700 flex flex-col sm:flex-row gap-4 items-center">
-                  <p className="text-[9px] font-black text-slate-500 uppercase max-w-xs leading-relaxed">Abonos anteriores archivados para no afectar el nuevo saldo.</p>
-                  <button onClick={() => { onEdit(historyMerchant); setHistoryMerchant(null); }} className="w-full sm:w-auto bg-emerald-500 border-4 border-black px-6 py-4 rounded-2xl font-black text-white text-xs uppercase neobrutalism-shadow flex items-center justify-center gap-3 active:scale-95 transition-all">
-                    <FilePlus2 className="w-5 h-5" /> RENOVAR EXPEDIENTE <ArrowRight className="w-4 h-4" />
-                  </button>
-               </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* MODAL DE ELIMINACIÓN */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[500] flex items-center justify-center p-4">
-          <div className="bg-[#1e1b1b] border-8 border-rose-600 p-10 rounded-[3.5rem] w-full max-w-md text-center neobrutalism-shadow-lg animate-in zoom-in-95">
-            <ShieldAlert className="text-rose-600 w-14 h-14 mx-auto mb-8 animate-bounce" />
-            <h3 className="text-4xl font-black uppercase mb-4 italic tracking-tighter text-white">¡ALTO!</h3>
-            <p className="font-bold text-slate-300 text-sm uppercase mb-10 tracking-widest leading-relaxed">¿Estás seguro de eliminar este registro?</p>
-            <div className="grid grid-cols-2 gap-6">
-              <button onClick={() => setDeleteConfirmId(null)} className="bg-slate-700 border-4 border-black p-5 rounded-2xl font-black uppercase text-xs text-white active:scale-95">No</button>
-              <button onClick={handleDelete} disabled={deleteLoading} className="bg-rose-600 border-4 border-black p-5 rounded-2xl font-black uppercase text-xs text-white neobrutalism-shadow active:scale-95">Sí, Borrar</button>
-            </div>
-          </div>
         </div>
       )}
     </div>

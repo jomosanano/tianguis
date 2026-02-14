@@ -19,19 +19,29 @@ export const dataService = {
     const from = page * pageSize;
     const to = from + pageSize - 1;
     
-    let query = supabase.from('merchants').select(`*, zone_assignments(*, zones(name))`, { count: 'exact' });
+    // Definimos la selección base. 
+    // Si es delegado, usamos !inner para que el filtro de zona afecte al registro principal.
+    let selectString = `*, zone_assignments(*, zones(name))`;
+    if (user.role === 'DELEGATE') {
+      selectString = `*, zone_assignments!inner(*, zones(name))`;
+    }
+    
+    let query = supabase.from('merchants').select(selectString, { count: 'exact' });
     
     if (user.role === 'SECRETARY') query = query.eq('status', 'PAID');
+    
     if (user.role === 'DELEGATE') {
       if (user.assigned_zones && user.assigned_zones.length > 0) {
-        query = query.filter('zone_assignments.zone_id', 'in', `(${user.assigned_zones.join(',')})`);
+        // Solo registros que pertenezcan a las zonas del delegado
+        query = query.in('zone_assignments.zone_id', user.assigned_zones);
       } else {
-        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+        // Si no tiene zonas asignadas, no debe ver nada
+        return { data: [], totalCount: 0 };
       }
     }
 
     if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name_paterno.ilike.%${search}%,giro.ilike.%${search}%`);
+      query = query.or(`first_name.ilike.%${search}%,last_name_paterno.ilike.%${search}%,last_name_materno.ilike.%${search}%,giro.ilike.%${search}%`);
     }
 
     const { data, error, count } = await query.order('created_at', { ascending: false }).range(from, to);
@@ -41,7 +51,8 @@ export const dataService = {
       ...m, 
       profile_photo: m.profile_photo_url, 
       ine_photo: m.ine_photo_url, 
-      assignments: m.zone_assignments || [] 
+      assignments: m.zone_assignments || [],
+      full_name: `${m.first_name} ${m.last_name_paterno} ${m.last_name_materno}`.trim()
     })) as unknown as Merchant[];
 
     return { data: formattedData, totalCount: count || 0 };
@@ -61,10 +72,32 @@ export const dataService = {
     }));
   },
 
-  getMerchantById: async (id: string) => {
-    const { data, error } = await supabase.from('merchants').select(`*, zone_assignments(*, zones(name))`).eq('id', id).single();
-    if (error) throw error;
-    return { ...data, profile_photo: data.profile_photo_url, ine_photo: data.ine_photo_url, assignments: data.zone_assignments || [] } as unknown as Merchant;
+  getMerchantById: async (id: string, user: User | null = null) => {
+    let selectString = `*, zone_assignments(*, zones(name))`;
+    if (user?.role === 'DELEGATE') {
+      selectString = `*, zone_assignments!inner(*, zones(name))`;
+    }
+    
+    let query = supabase.from('merchants').select(selectString).eq('id', id);
+    
+    if (user?.role === 'DELEGATE') {
+      if (user.assigned_zones && user.assigned_zones.length > 0) {
+        query = query.in('zone_assignments.zone_id', user.assigned_zones);
+      } else {
+        throw new Error("Acceso denegado: El delegado no tiene zonas asignadas.");
+      }
+    }
+
+    const { data, error } = await query.single();
+    if (error) throw new Error("Comerciante no encontrado o fuera de su jurisdicción.");
+    
+    return { 
+      ...data, 
+      profile_photo: data.profile_photo_url, 
+      ine_photo: data.ine_photo_url, 
+      assignments: data.zone_assignments || [],
+      full_name: `${data.first_name} ${data.last_name_paterno} ${data.last_name_materno}`.trim()
+    } as unknown as Merchant;
   },
 
   getMerchantAbonos: async (merchantId: string) => {

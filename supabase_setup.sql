@@ -1,38 +1,58 @@
 
--- FUNCIÓN RPC PARA CIERRE DE AUDITORÍA ATÓMICO (Lado del Servidor)
--- Esta función asegura que el saldo se congele y las zonas se borren en una sola operación.
-CREATE OR REPLACE FUNCTION close_merchant_audit(p_merchant_id UUID)
-RETURNS void AS $$
+-- 1. Asegurar que la columna de reset existe en comerciantes
+ALTER TABLE merchants ADD COLUMN IF NOT EXISTS balance_reset_at TIMESTAMPTZ DEFAULT NOW();
+
+-- 2. Añadir columna de archivado en abonos
+ALTER TABLE abonos ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
+
+-- 3. Función maestra de recalculación REFORZADA
+CREATE OR REPLACE FUNCTION sync_merchant_debt_and_balance()
+RETURNS TRIGGER AS $$
 DECLARE
-  v_total_abonado NUMERIC;
-  v_current_balance NUMERIC;
+  v_merchant_id UUID;
+  v_reset_date TIMESTAMPTZ;
+  v_costo_zonas NUMERIC;
+  v_total_abonos_activos NUMERIC;
 BEGIN
-  -- 1. Calcular el total abonado histórico real desde la tabla de abonos
-  SELECT COALESCE(SUM(amount), 0) INTO v_total_abonado
-  FROM abonos
-  WHERE merchant_id = p_merchant_id;
+  -- Determinar el ID del comerciante afectado
+  v_merchant_id := COALESCE(NEW.merchant_id, OLD.merchant_id);
 
-  -- 2. Obtener el balance actual del comerciante antes de limpiar
-  SELECT balance INTO v_current_balance
-  FROM merchants
-  WHERE id = p_merchant_id;
+  -- 1. Obtener la fecha de reset (Punto de Corte)
+  SELECT COALESCE(balance_reset_at, created_at) INTO v_reset_date 
+  FROM merchants 
+  WHERE id = v_merchant_id
+  FOR NO KEY UPDATE; -- Bloqueo para evitar lecturas sucias
 
-  -- 3. Actualizar el comerciante:
-  -- - carry_over_debt: Congelamos el saldo pendiente como deuda de arrastre.
-  -- - total_debt: Ajustamos sumando lo abonado + el arrastre para mantener coherencia.
-  -- - admin_received: Reiniciamos para el nuevo ciclo logístico.
-  UPDATE merchants
-  SET
-    carry_over_debt = v_current_balance,
-    total_debt = v_total_abonado + v_current_balance,
-    balance = v_current_balance, -- El saldo se mantiene igual pero ahora es puro arrastre
-    admin_received = false,
-    admin_received_at = NULL
-  WHERE id = p_merchant_id;
+  -- 2. Calcular la Deuda Total (Zonas)
+  SELECT COALESCE(SUM(calculated_cost), 0) INTO v_costo_zonas
+  FROM zone_assignments 
+  WHERE merchant_id = v_merchant_id;
 
-  -- 4. Eliminar las asignaciones de zona para permitir un nuevo expediente limpio
-  DELETE FROM zone_assignments
-  WHERE merchant_id = p_merchant_id;
+  -- 3. Calcular Abonos ACTIVOS (No archivados y posteriores al reset)
+  SELECT COALESCE(SUM(amount), 0) INTO v_total_abonos_activos
+  FROM abonos 
+  WHERE merchant_id = v_merchant_id 
+  AND archived = false 
+  AND date > v_reset_date;
 
+  -- 4. Actualizar el registro del comerciante
+  UPDATE merchants 
+  SET 
+    total_debt = v_costo_zonas,
+    balance = v_costo_zonas - v_total_abonos_activos
+  WHERE id = v_merchant_id;
+
+  RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
+
+-- 4. Re-vincular triggers
+DROP TRIGGER IF EXISTS tr_sync_debt_zones ON zone_assignments;
+CREATE TRIGGER tr_sync_debt_zones
+AFTER INSERT OR UPDATE OR DELETE ON zone_assignments
+FOR EACH ROW EXECUTE FUNCTION sync_merchant_debt_and_balance();
+
+DROP TRIGGER IF EXISTS tr_sync_debt_abonos ON abonos;
+CREATE TRIGGER tr_sync_debt_abonos
+AFTER INSERT OR UPDATE OR DELETE ON abonos
+FOR EACH ROW EXECUTE FUNCTION sync_merchant_debt_and_balance();

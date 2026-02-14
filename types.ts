@@ -45,12 +45,11 @@ export interface Merchant {
   ine_photo: string;
   total_debt: number;
   balance: number;
-  carry_over_debt?: number; // Adeudo arrastrado de ciclos anteriores
   note?: string;
   status: 'PENDING' | 'PAID' | 'PARTIAL';
   assignments: ZoneAssignment[];
   created_at: string;
   admin_received?: boolean;
   admin_received_at?: string;
-  delivery_count?: number; // Contador de veces que se ha enviado al admin
+  delivery_count?: number; 
 }

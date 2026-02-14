@@ -1,9 +1,9 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
-import { Camera, QrCode, X, Loader2, User, AlertCircle, ShieldCheck, MapPin, DollarSign, Briefcase } from 'lucide-react';
+import { Camera, QrCode, X, Loader2, User, AlertCircle, ShieldCheck, MapPin, DollarSign, Briefcase, Calendar, Ruler, StickyNote } from 'lucide-react';
 import { dataService } from '../services/dataService';
-import { Merchant } from '../types';
+import { Merchant, User as UserType } from '../types';
 
 export const QRScanner: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -12,6 +12,11 @@ export const QRScanner: React.FC = () => {
   const [merchant, setMerchant] = useState<Merchant | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserType | null>(null);
+
+  useEffect(() => {
+    dataService.getCurrentUser().then(setCurrentUser);
+  }, []);
 
   useEffect(() => {
     if (scanning && !merchant) {
@@ -72,10 +77,10 @@ export const QRScanner: React.FC = () => {
     setLoading(true);
     stopCamera();
     try {
-      const data = await dataService.getMerchantById(id);
+      const data = await dataService.getMerchantById(id, currentUser);
       setMerchant(data);
-    } catch (err) {
-      setError("Comerciante no encontrado o código inválido.");
+    } catch (err: any) {
+      setError(err.message || "Comerciante no encontrado o fuera de su zona asignada.");
       setScanning(true);
     } finally {
       setLoading(false);
@@ -114,7 +119,7 @@ export const QRScanner: React.FC = () => {
           {error && (
             <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-8 text-center animate-in fade-in">
               <AlertCircle className="w-16 h-16 text-rose-500 mb-4" />
-              <h3 className="text-xl font-black uppercase mb-2">Error de Lectura</h3>
+              <h3 className="text-xl font-black uppercase mb-2">Error de Jurisdicción</h3>
               <p className="text-sm font-bold text-slate-400 mb-8 uppercase tracking-widest">{error}</p>
               <button onClick={resetScanner} className="bg-blue-600 border-2 border-black px-8 py-3 rounded-2xl font-black text-sm active:scale-95 transition-all">REINTENTAR</button>
             </div>
@@ -154,12 +159,28 @@ export const QRScanner: React.FC = () => {
                       alt="Merchant"
                     />
                  </div>
-                 <h2 className="text-3xl font-black uppercase italic tracking-tighter metallic-gold mb-1 text-center">{merchant.full_name}</h2>
-                 <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-4 py-1.5 rounded-full">
+                 <h2 className="text-3xl font-black uppercase italic tracking-tighter metallic-gold mb-1 text-center leading-tight">
+                   {merchant.first_name}<br/>
+                   <span className="text-lg opacity-80 font-bold">{merchant.last_name_paterno} {merchant.last_name_materno}</span>
+                 </h2>
+                 <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-4 py-1.5 rounded-full mt-3">
                     <Briefcase className="w-3 h-3 text-blue-400" />
                     <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{merchant.giro}</span>
                  </div>
               </div>
+
+              {/* BLOQUE DE NOTAS/OBSERVACIONES */}
+              {merchant.note && (
+                <div className="mb-8 bg-slate-900 border-2 border-blue-500/20 p-5 rounded-3xl flex gap-4 items-start animate-in fade-in slide-in-from-top-2">
+                   <div className="bg-blue-600/10 p-2 rounded-xl border border-blue-600/20">
+                      <StickyNote className="w-5 h-5 text-blue-400" />
+                   </div>
+                   <div className="flex-1">
+                      <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Notas del Expediente</p>
+                      <p className="text-xs font-bold text-slate-400 leading-relaxed italic">"{merchant.note}"</p>
+                   </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4 mb-8">
                  <div className="bg-slate-900 border-2 border-black p-4 rounded-2xl">
@@ -175,16 +196,29 @@ export const QRScanner: React.FC = () => {
               </div>
 
               <div className="space-y-4 mb-10">
-                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2">
-                    <MapPin className="w-3 h-3" /> Zonas de Trabajo Autorizadas
+                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2 border-b-2 border-slate-700 pb-2 mb-4">
+                    <MapPin className="w-3 h-3 text-orange-500" /> JURISDICCIÓN Y ASIGNACIONES
                  </h4>
-                 <div className="grid grid-cols-1 gap-2">
-                    {merchant.assignments.map((a, i) => (
-                      <div key={i} className="bg-slate-900/50 border border-slate-700 px-4 py-3 rounded-xl flex justify-between items-center">
-                         <span className="font-bold text-sm text-slate-300">{(a as any).zones?.name}</span>
-                         <span className="bg-blue-600/10 text-blue-400 px-3 py-1 rounded-lg text-[10px] font-black border border-blue-400/20">{a.meters}m - {a.work_day}</span>
+                 <div className="grid grid-cols-1 gap-3">
+                    {merchant.assignments.length > 0 ? merchant.assignments.map((a, i) => (
+                      <div key={i} className="bg-slate-900 border-2 border-black p-4 rounded-2xl flex flex-col gap-2 neobrutalism-shadow shadow-blue-900/10">
+                         <div className="flex justify-between items-center">
+                            <span className="font-black text-lg text-white tracking-tighter italic">{(a as any).zones?.name || 'ZONA GENERAL'}</span>
+                            <div className="flex items-center gap-2 bg-blue-600 px-3 py-1 rounded-xl border-2 border-black">
+                               <Ruler size={12} className="text-white" />
+                               <span className="text-[11px] font-black text-white">{a.meters} MTS</span>
+                            </div>
+                         </div>
+                         <div className="flex items-center gap-2">
+                            <Calendar size={14} className="text-slate-500" />
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{a.work_day}</span>
+                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="bg-slate-900/50 border-2 border-dashed border-slate-700 p-8 rounded-3xl text-center">
+                         <span className="text-xs font-black text-slate-500 uppercase italic">Sin asignaciones de zona registradas</span>
+                      </div>
+                    )}
                  </div>
               </div>
 

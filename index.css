@@ -45,6 +45,15 @@ body {
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
+/* Animación para notas urgentes */
+@keyframes subtle-blink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.15); }
+}
+.animate-subtle-blink {
+  animation: subtle-blink 2s infinite ease-in-out;
+}
+
 /* Credential 3D Flip Styles */
 .credential-container {
   perspective: 2000px;
