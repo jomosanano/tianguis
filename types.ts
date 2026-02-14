@@ -45,6 +45,7 @@ export interface Merchant {
   ine_photo: string;
   total_debt: number;
   balance: number;
+  carry_over_debt?: number; // Adeudo arrastrado de ciclos anteriores
   note?: string;
   status: 'PENDING' | 'PAID' | 'PARTIAL';
   assignments: ZoneAssignment[];
