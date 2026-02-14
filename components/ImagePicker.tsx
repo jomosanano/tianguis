@@ -1,7 +1,8 @@
 
-import React, { useRef, useState, useEffect } from 'react';
-import { Camera, Upload, RefreshCw, CheckCircle, RotateCcw, SwitchCamera, Loader2 } from 'lucide-react';
-import { compressImage } from '../services/imageUtils';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { Camera, Upload, RefreshCw, CheckCircle, RotateCcw, SwitchCamera, Loader2, X, Scissors, Save, ZoomIn } from 'lucide-react';
+import Cropper from 'react-easy-crop';
+import { compressImage, getCroppedImg } from '../services/imageUtils';
 
 interface ImagePickerProps {
   onCapture: (image: string) => void;
@@ -13,19 +14,24 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [captured, setCaptured] = useState<string | null>(null);
-  const [mode, setMode] = useState<'idle' | 'camera'>('idle');
+  const [mode, setMode] = useState<'idle' | 'camera' | 'crop'>('idle');
   const [loadingCamera, setLoadingCamera] = useState(false);
   
+  // Estados de Recorte
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [currentDeviceIndex, setCurrentDeviceIndex] = useState(0);
 
-  // Efecto para vincular el stream al video cuando el elemento esté listo
   useEffect(() => {
-    if (videoRef.current && stream) {
+    if (videoRef.current && stream && mode === 'camera') {
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch(err => console.error("Error al reproducir video:", err));
     }
-  }, [stream, loadingCamera]);
+  }, [stream, mode, loadingCamera]);
 
   const updateDevices = async () => {
     try {
@@ -44,7 +50,7 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
     }
-    setMode('idle');
+    // IMPORTANTE: Ya no seteamos setMode('idle') aquí para permitir transiciones a 'crop'
     setLoadingCamera(false);
   };
 
@@ -61,8 +67,6 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
       }
 
       let indexToUse = deviceIndex;
-
-      // Si es el inicio (index null), intentar buscar la cámara trasera en la lista
       if (indexToUse === null) {
         const backCameraIndex = currentDevices.findIndex(d => 
           d.label.toLowerCase().includes('back') || 
@@ -76,9 +80,8 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
 
       const constraints: MediaStreamConstraints = {
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          // Si tenemos dispositivos identificados, usamos el ID. Si no, forzamos environment.
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           ...(currentDevices.length > 0 
             ? { deviceId: { exact: currentDevices[indexToUse].deviceId } }
             : { facingMode: 'environment' })
@@ -87,32 +90,18 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
 
       const newStream = await navigator.mediaDevices.getUserMedia(constraints);
       setStream(newStream);
-      
-      // Actualizar lista para obtener etiquetas reales tras el permiso
-      const updated = await updateDevices();
-      
-      // Si fue inicio automático, re-verificar cuál es la cámara trasera ahora que tenemos etiquetas
-      if (deviceIndex === null && updated.length > 0) {
-        const activeTrack = newStream.getVideoTracks()[0];
-        const settings = activeTrack.getSettings();
-        const realIdx = updated.findIndex(d => d.deviceId === settings.deviceId);
-        if (realIdx !== -1) setCurrentDeviceIndex(realIdx);
-      }
-
+      await updateDevices();
     } catch (err) {
-      console.warn("Fallo al iniciar cámara específica, intentando con facingMode: environment...", err);
+      console.warn("Fallo al iniciar cámara, reintentando...", err);
       try {
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' } 
-        });
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         setStream(fallbackStream);
-        await updateDevices();
-      } catch (fallbackErr) {
-        alert("Error de acceso a cámara: Verifica los permisos en tu navegador.");
+      } catch (fErr) {
+        alert("Error de acceso a cámara.");
         setMode('idle');
       }
     } finally {
-      setTimeout(() => setLoadingCamera(false), 300);
+      setTimeout(() => setLoadingCamera(false), 500);
     }
   };
 
@@ -123,144 +112,171 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({ onCapture, label }) =>
     startCamera(nextIndex);
   };
 
-  const captureFrame = async () => {
+  const onCaptureFrame = async () => {
     if (!videoRef.current) return;
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext('2d');
     ctx?.drawImage(videoRef.current, 0, 0);
-    const rawImage = canvas.toDataURL('image/jpeg', 0.8);
-    const compressed = await compressImage(rawImage);
-    setCaptured(compressed);
-    onCapture(compressed);
-    stopCamera();
+    const rawImage = canvas.toDataURL('image/jpeg', 0.9);
+    
+    setImageToCrop(rawImage);
+    setMode('crop'); // Activamos el editor
+    stopCamera(); // Apagamos la cámara pero el modo sigue siendo 'crop'
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
-    reader.onload = async (event) => {
-      const result = event.target?.result as string;
-      const compressed = await compressImage(result);
-      setCaptured(compressed);
-      onCapture(compressed);
+    reader.onload = (event) => {
+      setImageToCrop(event.target?.result as string);
+      setMode('crop');
     };
     reader.readAsDataURL(file);
   };
 
-  useEffect(() => {
-    return () => {
-      if (stream) stream.getTracks().forEach(t => t.stop());
-    };
-  }, [stream]);
+  const onCropComplete = useCallback((_area: any, pixels: any) => {
+    setCroppedAreaPixels(pixels);
+  }, []);
+
+  const saveCrop = async () => {
+    if (!imageToCrop || !croppedAreaPixels) return;
+    try {
+      const croppedBase64 = await getCroppedImg(imageToCrop, croppedAreaPixels);
+      const finalCompressed = await compressImage(croppedBase64, 500, 0.7);
+      setCaptured(finalCompressed);
+      onCapture(finalCompressed);
+      setMode('idle');
+      setImageToCrop(null);
+    } catch (e) {
+      alert("Error al procesar el recorte.");
+    }
+  };
+
+  const cancelAll = () => {
+    stopCamera();
+    setMode('idle');
+    setImageToCrop(null);
+  };
 
   return (
     <div className="flex flex-col gap-3">
       <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] ml-1">{label}</label>
+      
+      {/* Visualización Previa en el Formulario */}
       <div className="relative w-full aspect-[4/3] bg-slate-900 border-4 border-black rounded-[2rem] overflow-hidden neobrutalism-shadow group">
-        
-        {mode === 'idle' && !captured && (
+        {!captured ? (
           <div className="absolute inset-0 flex flex-col sm:flex-row">
             <button 
-              type="button"
-              onClick={() => startCamera(null)}
-              className="flex-1 flex flex-col items-center justify-center gap-3 hover:bg-slate-800 transition-all border-b-2 sm:border-b-0 sm:border-r-4 border-black group/btn active:bg-slate-700"
+              type="button" onClick={() => startCamera(null)}
+              className="flex-1 flex flex-col items-center justify-center gap-3 hover:bg-slate-800 transition-all border-b-2 sm:border-b-0 sm:border-r-4 border-black active:bg-slate-700"
             >
-              <div className="bg-blue-600 p-4 rounded-2xl border-2 border-black group-hover/btn:scale-110 transition-transform">
-                <Camera className="w-8 h-8 text-white" />
-              </div>
-              <span className="font-black text-[10px] uppercase tracking-widest text-slate-400 group-hover/btn:text-white transition-colors">Cámara</span>
+              <Camera className="w-8 h-8 text-blue-500" />
+              <span className="font-black text-[10px] uppercase text-slate-400">Cámara</span>
             </button>
             <button 
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-1 flex flex-col items-center justify-center gap-3 hover:bg-slate-800 transition-all group/btn active:bg-slate-700"
+              type="button" onClick={() => fileInputRef.current?.click()}
+              className="flex-1 flex flex-col items-center justify-center gap-3 hover:bg-slate-800 transition-all active:bg-slate-700"
             >
-              <div className="bg-emerald-500 p-4 rounded-2xl border-2 border-black group-hover/btn:scale-110 transition-transform">
-                <Upload className="w-8 h-8 text-white" />
-              </div>
-              <span className="font-black text-[10px] uppercase tracking-widest text-slate-400 group-hover/btn:text-white transition-colors">Galería</span>
+              <Upload className="w-8 h-8 text-emerald-500" />
+              <span className="font-black text-[10px] uppercase text-slate-400">Galería</span>
             </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              className="hidden" 
-              accept="image/*" 
-              onChange={handleFileUpload}
-            />
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
           </div>
-        )}
-
-        {mode === 'camera' && (
-          <div className="w-full h-full relative bg-black">
-            {loadingCamera && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-slate-900 text-blue-500">
-                <Loader2 className="w-10 h-10 animate-spin" />
-                <span className="font-black text-[10px] uppercase tracking-widest">Iniciando Lente Trasero...</span>
-              </div>
-            )}
-            
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              muted 
-              className={`w-full h-full object-cover transition-opacity duration-300 ${loadingCamera ? 'opacity-0' : 'opacity-100'}`} 
-            />
-            
-            <div className="absolute inset-0 pointer-events-none border-2 border-white/10 m-4 rounded-2xl" />
-            
-            <div className="absolute bottom-6 left-0 right-0 flex justify-center items-center gap-6 px-6">
-              <button 
-                type="button"
-                onClick={stopCamera}
-                className="p-4 bg-slate-900/80 backdrop-blur-md border-2 border-white/20 rounded-2xl text-white active:scale-90 transition-transform"
-              >
-                <RotateCcw className="w-6 h-6" />
-              </button>
-
-              <button 
-                type="button"
-                onClick={captureFrame}
-                className="w-20 h-20 bg-white border-4 border-black rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
-              >
-                <div className="w-14 h-14 border-4 border-slate-200 rounded-full" />
-              </button>
-
-              {devices.length > 1 && (
-                <button 
-                  type="button"
-                  onClick={switchCamera}
-                  className="p-4 bg-blue-600/80 backdrop-blur-md border-2 border-white/20 rounded-2xl text-white active:scale-90 transition-transform"
-                >
-                  <SwitchCamera className="w-6 h-6" />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {captured && (
+        ) : (
           <div className="w-full h-full relative group/preview">
-            <img src={captured} className="w-full h-full object-cover transition-transform duration-500 group-hover/preview:scale-110" alt="Captured" />
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center">
-              <button 
-                type="button"
-                onClick={() => { setCaptured(null); setMode('idle'); }}
-                className="bg-white border-4 border-black p-4 rounded-2xl font-black text-slate-900 flex items-center gap-3 animate-in zoom-in-50"
-              >
-                <RefreshCw className="w-5 h-5" /> REPETIR
-              </button>
-            </div>
-            <div className="absolute top-4 left-4 bg-emerald-500 p-2 rounded-xl border-2 border-black shadow-lg">
-              <CheckCircle className="w-5 h-5 text-white" />
+            <img src={captured} className="w-full h-full object-cover transition-transform duration-500 group-hover/preview:scale-105" alt="Preview" />
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center gap-4">
+               <button type="button" onClick={() => { setCaptured(null); setMode('idle'); }} className="bg-white border-2 border-black p-3 rounded-xl font-black text-[10px] uppercase text-black flex items-center gap-2">
+                 <RefreshCw size={14} /> REPETIR
+               </button>
             </div>
           </div>
         )}
       </div>
+
+      {/* CÁMARA PANTALLA COMPLETA */}
+      {mode === 'camera' && (
+        <div className="fixed inset-0 z-[2000] bg-black flex flex-col animate-in fade-in duration-300">
+           {loadingCamera && (
+             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/90 text-blue-500">
+               <Loader2 className="w-12 h-12 animate-spin mb-4" />
+               <p className="font-black text-xs uppercase tracking-widest">Iniciando Lente...</p>
+             </div>
+           )}
+           
+           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+           
+           {/* UI de Cámara Pantalla Completa */}
+           <div className="absolute top-8 left-0 right-0 px-8 flex justify-between items-center">
+              <div className="bg-black/50 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20">
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">Modo Captura: {label}</span>
+              </div>
+              <button type="button" onClick={cancelAll} className="p-4 bg-white border-2 border-black rounded-full text-black active:scale-90 transition-transform">
+                <X size={24} />
+              </button>
+           </div>
+
+           <div className="absolute bottom-12 left-0 right-0 flex justify-center items-center gap-10 px-8">
+              <button type="button" onClick={switchCamera} className="p-5 bg-slate-900/80 backdrop-blur-xl border-2 border-white/20 rounded-full text-white active:scale-90 transition-transform">
+                <SwitchCamera size={28} />
+              </button>
+
+              <button type="button" onClick={onCaptureFrame} className="w-24 h-24 bg-white border-8 border-slate-900 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform">
+                <div className="w-16 h-16 border-4 border-slate-200 rounded-full" />
+              </button>
+
+              <div className="w-[68px]" />
+           </div>
+        </div>
+      )}
+
+      {/* EDITOR DE RECORTE (MODAL) */}
+      {mode === 'crop' && imageToCrop && (
+        <div className="fixed inset-0 z-[2500] bg-slate-950 flex flex-col p-4 sm:p-8 animate-in zoom-in-95 duration-300">
+           <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-2xl font-black uppercase italic tracking-tighter text-blue-500">Editor de <span className="text-white">Imagen</span></h3>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Ajusta el encuadre para {label}</p>
+              </div>
+              <button type="button" onClick={cancelAll} className="p-3 bg-slate-800 border-2 border-black rounded-2xl text-white active:scale-90 transition-transform"><X /></button>
+           </div>
+
+           <div className="relative flex-1 bg-black border-4 border-black rounded-[2.5rem] overflow-hidden neobrutalism-shadow-lg">
+              <Cropper
+                image={imageToCrop}
+                crop={crop}
+                zoom={zoom}
+                aspect={label.toLowerCase().includes('perfil') ? 1 : 1.6}
+                cropShape={label.toLowerCase().includes('perfil') ? 'round' : 'rect'}
+                showGrid={true}
+                onCropChange={setCrop}
+                onCropComplete={onCropComplete}
+                onZoomChange={setZoom}
+              />
+           </div>
+
+           <div className="mt-8 space-y-6">
+              <div className="flex items-center gap-6 bg-slate-900 border-2 border-black p-4 rounded-3xl">
+                 <ZoomIn className="text-blue-500" size={20} />
+                 <input 
+                   type="range" min={1} max={3} step={0.1} 
+                   value={zoom} onChange={e => setZoom(Number(e.target.value))} 
+                   className="flex-1 accent-blue-600 h-2 rounded-lg"
+                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                 <button type="button" onClick={cancelAll} className="bg-slate-800 border-2 border-black p-5 rounded-2xl font-black uppercase text-xs active:scale-95 transition-all text-white">Descartar</button>
+                 <button type="button" onClick={saveCrop} className="bg-blue-600 border-4 border-black p-5 rounded-2xl font-black text-white uppercase text-xs neobrutalism-shadow active:scale-95 flex items-center justify-center gap-3">
+                   <Save size={18} /> GUARDAR RECORTE
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
