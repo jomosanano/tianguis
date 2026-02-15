@@ -1,43 +1,58 @@
 
--- 1. Agregar columnas de logística a la tabla merchants
-ALTER TABLE merchants ADD COLUMN IF NOT EXISTS ready_for_admin BOOLEAN DEFAULT false;
-ALTER TABLE merchants ADD COLUMN IF NOT EXISTS admin_received BOOLEAN DEFAULT false;
-ALTER TABLE merchants ADD COLUMN IF NOT EXISTS admin_received_at TIMESTAMPTZ;
-ALTER TABLE merchants ADD COLUMN IF NOT EXISTS delivery_count INTEGER DEFAULT 0;
+-- 1. Añadir columna de archivado a abonos
+ALTER TABLE abonos ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
 
--- 2. Asegurar que el campo status sea consistente con el balance
--- (Opcional, pero ayuda a la lógica de secretaría)
-CREATE OR REPLACE FUNCTION update_merchant_status()
+-- 2. Añadir columna para guardar rastro de deuda anterior en el comerciante
+ALTER TABLE merchants ADD COLUMN IF NOT EXISTS last_cycle_debt DECIMAL(12,2) DEFAULT 0;
+
+-- 3. Función optimizada para calcular saldo ignorando abonos archivados
+CREATE OR REPLACE FUNCTION calculate_merchant_balance()
 RETURNS TRIGGER AS $$
+DECLARE
+    total_paid DECIMAL(12,2);
+    current_debt DECIMAL(12,2);
 BEGIN
-  IF NEW.balance <= 0 THEN
-    NEW.status := 'PAID';
-  ELSIF NEW.balance < NEW.total_debt THEN
-    NEW.status := 'PARTIAL';
-  ELSE
-    NEW.status := 'PENDING';
-  END IF;
-  RETURN NEW;
+    -- Obtener la deuda actual definida en el comerciante
+    SELECT total_debt INTO current_debt FROM merchants WHERE id = COALESCE(NEW.merchant_id, OLD.merchant_id);
+    
+    -- Sumar solo abonos NO archivados
+    SELECT COALESCE(SUM(amount), 0) INTO total_paid 
+    FROM abonos 
+    WHERE merchant_id = COALESCE(NEW.merchant_id, OLD.merchant_id) AND archived = false;
+
+    -- Actualizar el balance del comerciante
+    UPDATE merchants 
+    SET balance = current_debt - total_paid 
+    WHERE id = COALESCE(NEW.merchant_id, OLD.merchant_id);
+
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS tr_update_status ON merchants;
-CREATE TRIGGER tr_update_status
-BEFORE INSERT OR UPDATE OF balance, total_debt ON merchants
-FOR EACH ROW EXECUTE FUNCTION update_merchant_status();
+-- 4. Triggers para mantener el balance sincronizado
+DROP TRIGGER IF EXISTS tr_refresh_balance_on_abono ON abonos;
+CREATE TRIGGER tr_refresh_balance_on_abono
+AFTER INSERT OR UPDATE OR DELETE ON abonos
+FOR EACH ROW EXECUTE FUNCTION calculate_merchant_balance();
 
--- 3. Configurar RLS (Row Level Security) para permitir actualizaciones de logística
--- Permitir que usuarios con rol SECRETARY o ADMIN actualicen ready_for_admin
-DROP POLICY IF EXISTS "Permitir actualización de logística a Secretaria y Admin" ON merchants;
-CREATE POLICY "Permitir actualización de logística a Secretaria y Admin" 
-ON merchants 
-FOR UPDATE 
-TO authenticated
-USING (true)
-WITH CHECK (
-  -- Solo permitir a secretaría cambiar campos específicos de logística
-  (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'SECRETARY' OR role = 'ADMIN')))
-);
+-- 5. Trigger adicional para cuando se cambia la deuda total manualmente
+CREATE OR REPLACE FUNCTION refresh_balance_on_debt_change()
+RETURNS TRIGGER AS $$
+DECLARE
+    total_paid DECIMAL(12,2);
+BEGIN
+    IF (OLD.total_debt IS DISTINCT FROM NEW.total_debt) THEN
+        SELECT COALESCE(SUM(amount), 0) INTO total_paid 
+        FROM abonos 
+        WHERE merchant_id = NEW.id AND archived = false;
+        
+        NEW.balance := NEW.total_debt - total_paid;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- 4. Índices para mejorar la velocidad de búsqueda de logística
-CREATE INDEX IF NOT EXISTS idx_merchants_logistics ON merchants(ready_for_admin, admin_received);
+DROP TRIGGER IF EXISTS tr_debt_change ON merchants;
+CREATE TRIGGER tr_debt_change
+BEFORE UPDATE ON merchants
+FOR EACH ROW EXECUTE FUNCTION refresh_balance_on_debt_change();

@@ -14,7 +14,7 @@ export const dataService = {
     if (error) throw error;
   },
 
-  getMerchantsPaginated: async (page: number, pageSize: number, search: string = '', user: User | null) => {
+  getMerchantsPaginated: async (page: number, pageSize: number, search: string = '', user: User | null, filter: string = 'ALL') => {
     if (!user) return { data: [], totalCount: 0 };
     const from = page * pageSize;
     const to = from + pageSize - 1;
@@ -26,7 +26,17 @@ export const dataService = {
     
     let query = supabase.from('merchants').select(selectString, { count: 'exact' });
     
-    if (user.role === 'SECRETARY') query = query.eq('balance', 0);
+    if (filter === 'NO_PAYMENTS') {
+      query = query.eq('status', 'PENDING');
+    } else if (filter === 'IN_PROGRESS') {
+      query = query.eq('status', 'PARTIAL');
+    } else if (filter === 'LIQUIDATED') {
+      query = query.eq('status', 'PAID');
+    }
+
+    if (user.role === 'SECRETARY' && filter === 'ALL') {
+       query = query.eq('status', 'PAID');
+    }
     
     if (user.role === 'DELEGATE') {
       if (user.assigned_zones && user.assigned_zones.length > 0) {
@@ -37,13 +47,13 @@ export const dataService = {
     }
 
     if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name_paterno.ilike.%${search}%,last_name_materno.ilike.%${search}%,giro.ilike.%${search}%`);
+      query = query.or(`first_name.ilike.%${search}%,last_name_paterno.ilike.%${search}%,giro.ilike.%${search}%`);
     }
 
     const { data, error, count } = await query.order('created_at', { ascending: false }).range(from, to);
     if (error) throw error;
 
-    const formattedData = data.map(m => ({ 
+    const formattedData = (data || []).map(m => ({ 
       ...m, 
       profile_photo: m.profile_photo_url, 
       ine_photo: m.ine_photo_url, 
@@ -52,6 +62,28 @@ export const dataService = {
     })) as unknown as Merchant[];
 
     return { data: formattedData, totalCount: count || 0 };
+  },
+
+  closeMerchantCycle: async (merchantId: string, newDebt: number) => {
+    // 1. Archivar abonos actuales
+    const { error: archiveError } = await supabase
+      .from('abonos')
+      .update({ archived: true })
+      .eq('merchant_id', merchantId)
+      .eq('archived', false);
+    
+    if (archiveError) throw archiveError;
+
+    // 2. Actualizar deuda del comerciante (el trigger recalculará el balance)
+    const { error: merchantError } = await supabase
+      .from('merchants')
+      .update({ 
+        total_debt: newDebt,
+        last_cycle_debt: newDebt // Opcional: podrías guardar la anterior antes de cambiarla
+      })
+      .eq('id', merchantId);
+
+    if (merchantError) throw merchantError;
   },
 
   getMerchantsReadyForAdmin: async () => {
@@ -66,20 +98,11 @@ export const dataService = {
 
   markAsReadyForAdmin: async (ids: string[]) => {
     if (!ids || ids.length === 0) return;
-    
-    console.log("Intentando marcar como listos para admin:", ids);
     const { error } = await supabase
       .from('merchants')
-      .update({ 
-        ready_for_admin: true, 
-        admin_received: false 
-      })
+      .update({ ready_for_admin: true, admin_received: false })
       .in('id', ids);
-    
-    if (error) {
-      console.error("Error en markAsReadyForAdmin:", error);
-      throw new Error(`Fallo en base de datos: ${error.message}`);
-    }
+    if (error) throw error;
   },
 
   confirmAdminReceipt: async (ids: string[]) => {
@@ -92,17 +115,12 @@ export const dataService = {
     if (!current) return;
 
     for (const m of current) {
-      const { error: updateError } = await supabase
-        .from('merchants')
-        .update({
-          ready_for_admin: false,
-          admin_received: true,
-          admin_received_at: new Date().toISOString(),
-          delivery_count: (Number(m.delivery_count || 0) + 1)
-        })
-        .eq('id', m.id);
-      
-      if (updateError) console.error(`Error confirmando recibo para ${m.id}:`, updateError);
+      await supabase.from('merchants').update({
+        ready_for_admin: false,
+        admin_received: true,
+        admin_received_at: new Date().toISOString(),
+        delivery_count: (Number(m.delivery_count || 0) + 1)
+      }).eq('id', m.id);
     }
   },
 
@@ -111,9 +129,7 @@ export const dataService = {
       .from('merchants')
       .select('*, zone_assignments(*, zones(name))')
       .order('created_at', { ascending: false });
-    
     if (error) throw error;
-    
     return data.map(m => ({
       ...m,
       full_name: `${m.first_name} ${m.last_name_paterno} ${m.last_name_materno}`.trim()
@@ -122,22 +138,15 @@ export const dataService = {
 
   getMerchantById: async (id: string, user: User | null = null) => {
     let selectString = `*, zone_assignments(*, zones(name))`;
-    if (user?.role === 'DELEGATE') {
-      selectString = `*, zone_assignments!inner(*, zones(name))`;
-    }
+    if (user?.role === 'DELEGATE') selectString = `*, zone_assignments!inner(*, zones(name))`;
     
     let query = supabase.from('merchants').select(selectString).eq('id', id);
-    
-    if (user?.role === 'DELEGATE') {
-      if (user.assigned_zones && user.assigned_zones.length > 0) {
-        query = query.in('zone_assignments.zone_id', user.assigned_zones);
-      } else {
-        throw new Error("Acceso denegado: El delegado no tiene zonas asignadas.");
-      }
+    if (user?.role === 'DELEGATE' && user.assigned_zones?.length) {
+      query = query.in('zone_assignments.zone_id', user.assigned_zones);
     }
 
     const { data, error } = await query.single();
-    if (error) throw new Error("Comerciante no encontrado o fuera de su jurisdicción.");
+    if (error) throw new Error("Acceso denegado o no encontrado.");
     
     return { 
       ...data, 
@@ -239,17 +248,6 @@ export const dataService = {
     if (error || profile.role !== 'ADMIN') throw new Error("Acceso denegado.");
     await supabase.auth.resetPasswordForEmail(email);
     return true;
-  },
-
-  batchUpdateMerchantsLogistics: async (ids: string[], received: boolean) => {
-    const { data: current } = await supabase.from('merchants').select('id, delivery_count').in('id', ids);
-    const updates = current?.map(m => ({
-      id: m.id,
-      admin_received: received,
-      admin_received_at: received ? new Date().toISOString() : null,
-      delivery_count: received ? (Number(m.delivery_count || 0) + 1) : m.delivery_count
-    }));
-    if (updates) for (const u of updates) await supabase.from('merchants').update(u).eq('id', u.id);
   },
 
   getCurrentUser: async (): Promise<User | null> => {

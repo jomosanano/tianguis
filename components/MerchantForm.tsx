@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Loader2, User as UserIcon, MapPin, ShieldCheck, ArrowUpRight } from 'lucide-react';
+import { Save, Plus, Trash2, Loader2, User as UserIcon, MapPin, ShieldCheck, ArrowUpRight, RotateCw } from 'lucide-react';
 import { ImagePicker } from './ImagePicker';
 import { supabase, uploadImage } from '../services/supabase';
 import { dataService } from '../services/dataService';
@@ -124,8 +124,8 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
   const costoZonas = assignments.reduce((sum, a) => sum + (Number(a.calculated_cost) || 0), 0);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto pb-20">
-      <div className="flex justify-between items-center text-white">
+    <form onSubmit={handleSubmit} className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto pb-20 text-white">
+      <div className="flex justify-between items-center">
         <div>
           <h2 className="text-4xl font-black uppercase italic tracking-tighter">
             {initialData ? 'Editar' : 'Nuevo'} <span className="text-blue-500">Expediente</span>
@@ -175,11 +175,20 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
           </div>
           
           <div className="mt-8 pt-6 border-t-2 border-slate-700 space-y-4">
-             <div className="relative text-3xl font-black text-white italic text-center py-6 bg-slate-900 border-4 border-black rounded-3xl flex flex-col items-center">
-                <span className="text-[10px] text-blue-500 font-black not-italic uppercase tracking-[0.3em] mb-1">Total del Ciclo</span>
-                <div className="flex items-center gap-2">
-                  <ArrowUpRight className="text-emerald-500 w-6 h-6" />
+             {/* ÁREA DE TOTAL DEL CICLO / SINCRONIZACIÓN */}
+             <div className="relative p-6 bg-slate-900 border-4 border-black rounded-[2rem] flex flex-col items-center gap-2 group hover:border-blue-500 transition-colors">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 border-2 border-black px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-widest text-white shadow-lg">
+                   Total del Ciclo
+                </div>
+                
+                <div className="text-4xl font-black text-white italic tracking-tighter flex items-center gap-3 mt-2">
+                  <ArrowUpRight className="text-emerald-500 w-8 h-8 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
                   ${costoZonas.toLocaleString()}
+                </div>
+
+                <div className="flex items-center gap-2 bg-black border border-slate-700 px-3 py-1 rounded-xl mt-2">
+                   <RotateCw className="w-3 h-3 text-blue-500 animate-subtle-blink" />
+                   <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em]">Cálculo Sincronizado</span>
                 </div>
              </div>
 

@@ -10,6 +10,12 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Optimizaciones de Renderizado para Listas Largas */
+.merchant-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 200px; /* Ayuda al navegador a estimar el tamaño antes de renderizar */
+}
+
 .neobrutalism-shadow {
   box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
 }
@@ -45,7 +51,6 @@ body {
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
-/* Animación para notas urgentes */
 @keyframes subtle-blink {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.6; transform: scale(1.15); }
@@ -121,13 +126,6 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
-.metallic-silver {
-  background: linear-gradient(135deg, #707070, #e0e0e0, #888888, #ffffff, #707070);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Scanning animation */
 .scanning-line {
   position: absolute;
   width: 100%;
