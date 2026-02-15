@@ -308,11 +308,25 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
               )}
 
               <div className="flex gap-4">
-                <div className="relative w-16 h-16 flex-shrink-0">
+                <div className="relative w-16 h-16 flex-shrink-0 group/note">
                   <img src={m.profile_photo || `https://ui-avatars.com/api/?name=${m.first_name}`} loading="lazy" className="w-full h-full rounded-2xl border-2 border-black object-cover bg-slate-800" />
                   {m.note && (
-                    <div className="absolute -top-2 -right-2 bg-amber-500 p-1 rounded-full border border-black cursor-help">
+                    <div className="absolute -top-2 -right-2 bg-amber-500 p-1 rounded-full border border-black cursor-help z-20" title={m.note}>
                       <StickyNote className="w-3 h-3 text-black" />
+                      
+                      {/* Tooltip Premium Neobrutalista */}
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-56 p-4 bg-slate-900 border-2 border-black rounded-2xl text-[10px] font-bold text-slate-300 neobrutalism-shadow invisible group-hover/note:visible opacity-0 group-hover/note:opacity-100 transition-all duration-300 z-[100] pointer-events-none">
+                        <div className="flex items-center gap-2 mb-2 border-b-2 border-slate-800 pb-2">
+                           <div className="bg-amber-500 p-1 rounded-lg border border-black">
+                              <StickyNote size={12} className="text-black" />
+                           </div>
+                           <span className="text-amber-500 font-black uppercase tracking-widest italic">Nota de Registro</span>
+                        </div>
+                        <p className="leading-relaxed text-slate-200">"{m.note}"</p>
+                        
+                        {/* Triángulo indicador */}
+                        <div className="absolute top-[calc(100%-8px)] left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-900 border-r-2 border-b-2 border-black rotate-45" />
+                      </div>
                     </div>
                   )}
                 </div>
