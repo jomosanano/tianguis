@@ -10,153 +10,100 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Optimizaciones de Renderizado para Listas Largas */
-.merchant-card {
-  content-visibility: auto;
-  contain-intrinsic-size: 1px 200px;
+/* ============================================================
+   CONFIGURACIÓN DE IMPRESIÓN (PDF)
+   ============================================================ */
+@media print {
+  body * { visibility: hidden !important; }
+  .printable-ficha, .printable-ficha * { visibility: visible !important; }
+  .printable-ficha {
+    position: absolute !important;
+    left: 0 !important; top: 0 !important;
+    width: 100% !important;
+    display: block !important;
+    background: white !important;
+    color: black !important;
+    margin: 0 !important; padding: 0 !important;
+  }
+  html, body, #root, main, .max-w-7xl {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    margin: 0 !important; padding: 0 !important;
+    display: block !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-scheme: light !important;
+  }
 }
 
+.printable-ficha { display: none; }
+
+/* ============================================================
+   ESTILOS DE LA INTERFAZ Y CREDENCIAL
+   ============================================================ */
 .neobrutalism-shadow {
   box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
-}
-
-@media (max-width: 640px) {
-  .neobrutalism-shadow {
-    box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
-  }
 }
 
 .neobrutalism-shadow-lg {
   box-shadow: 8px 8px 0px 0px rgba(0,0,0,1);
 }
 
-.neobrutalism-shadow-active {
-  box-shadow: none;
-  transform: translate(2px, 2px);
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 10px;
-}
-
-.safe-top { padding-top: env(safe-area-inset-top); }
-.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-
-@keyframes subtle-blink {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.15); }
-}
-.animate-subtle-blink {
-  animation: subtle-blink 2s infinite ease-in-out;
-}
-
-/* Photo Flip Styles */
-.photo-flip-container {
-  perspective: 1000px;
-  width: 100%;
-  height: 100%;
-}
-
-.photo-flip-inner {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  transform-style: preserve-3d;
-}
-
-.photo-flip-inner.is-flipped {
-  transform: rotateY(180deg);
-}
-
-.photo-flip-front, .photo-flip-back {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  border-radius: 1rem;
-  overflow: hidden;
-}
-
-.photo-flip-back {
-  transform: rotateY(180deg);
-}
-
-/* Credential 3D Flip Styles */
-.credential-container {
-  perspective: 2000px;
-  position: relative;
-  width: 100%;
-  display: block;
-}
-
-.credential-inner {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
-  transform-style: preserve-3d;
-  transform: translateZ(0);
-}
-
-.credential-inner.flipped {
-  transform: rotateY(180deg) translateZ(0);
-}
-
-.credential-front, .credential-back {
-  position: absolute !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  border-radius: 2rem;
-  overflow: hidden;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  display: flex;
-  flex-direction: column;
-  margin: 0 !important;
-}
-
-.credential-front {
-  z-index: 2;
-  transform: rotateY(0deg);
-}
-
-.credential-back {
-  transform: rotateY(180deg);
-  z-index: 1;
-}
-
-/* Pattern Security */
-.bg-guilloche {
-  background-color: #0f172a;
-  background-image: radial-gradient(#1e293b 0.5px, transparent 0.5px);
-  background-size: 10px 10px;
-}
-
 .bg-security-grid {
-  background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(59, 130, 246, 0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(59, 130, 246, 0.05) 1px, transparent 1px);
   background-size: 20px 20px;
 }
 
 .metallic-gold {
-  background: linear-gradient(135deg, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
+  background: linear-gradient(135deg, #fceabb 0%, #fccd4d 25%, #f8b500 50%, #fccd4d 75%, #fceabb 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+.photo-glow {
+  box-shadow: 0 0 0 4px rgba(15, 23, 42, 1), 0 0 20px 2px rgba(59, 130, 246, 0.5);
+}
+
+/* Credential 3D Flip */
+.credential-container {
+  perspective: 2000px;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.credential-inner {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 0.63/1;
+  transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-style: preserve-3d;
+}
+
+.credential-inner.flipped {
+  transform: rotateY(180deg);
+}
+
+.credential-front, .credential-back {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  backface-visibility: hidden;
+  border-radius: 3rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 4px border-black;
+}
+
+.credential-back {
+  transform: rotateY(180deg);
 }
 
 .scanning-line {
@@ -174,3 +121,7 @@ body {
   50% { top: 100%; }
   100% { top: 0%; }
 }
+
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
