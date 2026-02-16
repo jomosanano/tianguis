@@ -159,11 +159,13 @@ export const QRScanner: React.FC = () => {
                       alt="Merchant"
                     />
                  </div>
-                 <h2 className="text-3xl font-black uppercase italic tracking-tighter metallic-gold mb-1 text-center leading-tight">
-                   {merchant.first_name}<br/>
-                   <span className="text-lg opacity-80 font-bold">{merchant.last_name_paterno} {merchant.last_name_materno}</span>
+                 <h2 className="text-3xl font-black uppercase italic tracking-tighter metallic-gold leading-tight text-center">
+                   {merchant.first_name}
                  </h2>
-                 <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-4 py-1.5 rounded-full mt-3">
+                 <h2 className="text-xl font-bold uppercase italic tracking-tighter metallic-gold opacity-90 leading-tight mt-1 text-center">
+                   {merchant.last_name_paterno} {merchant.last_name_materno}
+                 </h2>
+                 <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-4 py-1.5 rounded-full mt-4">
                     <Briefcase className="w-3 h-3 text-blue-400" />
                     <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{merchant.giro}</span>
                  </div>

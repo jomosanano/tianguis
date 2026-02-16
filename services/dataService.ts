@@ -32,6 +32,8 @@ export const dataService = {
       query = query.eq('status', 'PARTIAL');
     } else if (filter === 'LIQUIDATED') {
       query = query.eq('status', 'PAID');
+    } else if (filter === 'NO_INE') {
+      query = query.or('ine_photo_url.is.null,ine_photo_url.eq.""');
     }
 
     if (user.role === 'SECRETARY' && filter === 'ALL') {
