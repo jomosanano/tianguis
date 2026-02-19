@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Loader2, Edit2, Trash2, X, History, IdCard, Filter, DollarSign, MapPin, Briefcase, RotateCw, ShieldCheck, ShieldAlert, QrCode, AlertTriangle, PackageOpen, CheckCircle2, MessageCircle, Ruler, Calendar, Info } from 'lucide-react';
+import { Search, Loader2, Edit2, Trash2, X, History, IdCard, Filter, DollarSign, MapPin, Briefcase, RotateCw, ShieldCheck, ShieldAlert, QrCode, AlertTriangle, PackageOpen, CheckCircle2, MessageCircle, Ruler, Calendar, Info, StickyNote } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { dataService } from '../services/dataService';
 import { Merchant, Abono, User as UserType, Zone } from '../types';
@@ -242,6 +242,17 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
 
           return (
             <div key={m.id} className={`bg-slate-900/40 border-4 ${statusColor} rounded-[2.5rem] p-5 flex flex-col gap-4 relative neobrutalism-shadow transition-all hover:scale-[1.02]`}>
+              {m.note && (
+                <div 
+                  className="absolute -top-2 -right-2 bg-yellow-400 border-2 border-black p-1.5 rounded-xl neobrutalism-shadow rotate-12 z-30 group/note cursor-help"
+                  title={m.note}
+                >
+                  <StickyNote size={14} className="text-black" />
+                  <div className="absolute bottom-full right-0 mb-2 w-48 bg-black border-2 border-white p-2 rounded-xl text-[10px] font-bold text-white opacity-0 group-hover/note:opacity-100 transition-opacity pointer-events-none z-50 shadow-2xl">
+                    {m.note}
+                  </div>
+                </div>
+              )}
               <div className="flex gap-4">
                 <div className="relative w-16 h-16 flex-shrink-0">
                   <div className={`w-full h-full relative transition-transform duration-500 ${isIneFlipped ? '[transform:rotateY(180deg)]' : ''} [transform-style:preserve-3d]`}>
