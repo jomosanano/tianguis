@@ -7,6 +7,7 @@ export interface User {
   role: Role;
   name: string;
   assigned_zones?: string[]; // UUIDs de zonas permitidas
+  can_collect?: boolean; // Permiso individual de cobro
 }
 
 export interface Zone {

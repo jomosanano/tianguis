@@ -33,6 +33,32 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
   });
 
   const [assignments, setAssignments] = useState<ZoneAssignment[]>(initialData?.assignments || []);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+
+  const handleBlur = (field: string) => {
+    setTouched(prev => ({ ...prev, [field]: true }));
+  };
+
+  const getValidationClass = (field: string, value: string, isRequired: boolean = false) => {
+    const baseClass = "w-full bg-slate-900 border-2 rounded-xl p-4 font-bold outline-none text-white transition-colors duration-300";
+    const isTouched = touched[field];
+    
+    if (isRequired && isTouched && !value.trim()) {
+      return `${baseClass} border-rose-500/50 focus:border-rose-500`; // Soft invalid
+    }
+    
+    if (value.trim().length > 0) {
+      if (field === 'phone') {
+        // Validación específica para teléfono (exactamente 10 dígitos)
+        const phoneRegex = /^\d{10}$/;
+        if (!phoneRegex.test(value.trim())) {
+          return isTouched ? `${baseClass} border-amber-500/50 focus:border-amber-500` : `${baseClass} border-black focus:border-blue-500`;
+        }
+      }
+      return `${baseClass} border-emerald-500/50 focus:border-emerald-500`; // Soft valid
+    }
+    return `${baseClass} border-black focus:border-blue-500`; // Default
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -88,6 +114,14 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorStatus(null);
+    
+    // Validación de teléfono antes de enviar
+    if (formData.phone && !/^\d{10}$/.test(formData.phone.trim())) {
+      setErrorStatus("El número de teléfono debe tener exactamente 10 dígitos.");
+      setTouched(prev => ({ ...prev, phone: true }));
+      return;
+    }
+    
     setLoading(true);
 
     try {
@@ -180,15 +214,22 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
           <div className="lg:col-span-7 space-y-8 bg-slate-800 p-8 rounded-[2.5rem] border-4 border-black neobrutalism-shadow">
             <h3 className="text-xl font-black uppercase flex items-center gap-3 text-blue-400"><UserIcon /> Datos Personales</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <input type="text" required placeholder="Nombres" value={formData.first_name} onChange={e => setFormData({ ...formData, first_name: e.target.value })} className="w-full bg-slate-900 border-2 border-black rounded-xl p-4 font-bold outline-none focus:border-blue-500 text-white" />
-              <input type="text" required placeholder="Ap. Paterno" value={formData.last_name_paterno} onChange={e => setFormData({ ...formData, last_name_paterno: e.target.value })} className="w-full bg-slate-900 border-2 border-black rounded-xl p-4 font-bold outline-none focus:border-blue-500 text-white" />
-              <input type="text" placeholder="Ap. Materno" value={formData.last_name_materno} onChange={e => setFormData({ ...formData, last_name_materno: e.target.value })} className="w-full bg-slate-900 border-2 border-black rounded-xl p-4 font-bold outline-none focus:border-blue-500 text-white" />
+              <input type="text" required placeholder="Nombres" value={formData.first_name} onChange={e => setFormData({ ...formData, first_name: e.target.value })} onBlur={() => handleBlur('first_name')} className={getValidationClass('first_name', formData.first_name, true)} />
+              <input type="text" required placeholder="Ap. Paterno" value={formData.last_name_paterno} onChange={e => setFormData({ ...formData, last_name_paterno: e.target.value })} onBlur={() => handleBlur('last_name_paterno')} className={getValidationClass('last_name_paterno', formData.last_name_paterno, true)} />
+              <input type="text" placeholder="Ap. Materno" value={formData.last_name_materno} onChange={e => setFormData({ ...formData, last_name_materno: e.target.value })} onBlur={() => handleBlur('last_name_materno')} className={getValidationClass('last_name_materno', formData.last_name_materno, false)} />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <input type="text" required placeholder="Giro Comercial" value={formData.giro} onChange={e => setFormData({ ...formData, giro: e.target.value })} className="w-full bg-slate-900 border-2 border-black rounded-xl p-4 font-bold outline-none focus:border-blue-500 text-white" />
-              <input type="tel" placeholder="WhatsApp / Tel." value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="w-full bg-slate-900 border-2 border-black rounded-xl p-4 font-bold outline-none focus:border-blue-500 text-white" />
+              <input type="text" required placeholder="Giro Comercial" value={formData.giro} onChange={e => setFormData({ ...formData, giro: e.target.value })} onBlur={() => handleBlur('giro')} className={getValidationClass('giro', formData.giro, true)} />
+              <div className="relative">
+                <input type="tel" placeholder="WhatsApp / Tel. (10 dígitos)" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} onBlur={() => handleBlur('phone')} className={getValidationClass('phone', formData.phone, false)} />
+                {touched.phone && formData.phone.length > 0 && formData.phone.length < 10 && (
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-500 uppercase">
+                    {formData.phone.length}/10
+                  </span>
+                )}
+              </div>
             </div>
-            <textarea placeholder="Notas u observaciones del expediente..." value={formData.note} onChange={e => setFormData({ ...formData, note: e.target.value })} className="w-full bg-slate-900 border-2 border-black rounded-xl p-4 font-bold outline-none h-24 focus:border-blue-500 text-white" />
+            <textarea placeholder="Notas u observaciones del expediente..." value={formData.note} onChange={e => setFormData({ ...formData, note: e.target.value })} onBlur={() => handleBlur('note')} className={`${getValidationClass('note', formData.note, false)} h-24`} />
             <div className="grid grid-cols-2 gap-6">
               <ImagePicker label="Foto Perfil" onCapture={img => setFormData({...formData, profile_photo: img})} />
               <ImagePicker label="Identificación" onCapture={img => setFormData({...formData, ine_photo: img})} />
@@ -206,11 +247,11 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
                   <button type="button" onClick={() => removeAssignment(i)} className="absolute -top-2 -right-2 p-1.5 bg-rose-600 border-2 border-black rounded-lg text-white"><Trash2 size={12}/></button>
                   <div className="grid grid-cols-2 gap-2 mb-2">
                     <select value={a.zone_id} onChange={e => updateAssignment(i, 'zone_id', e.target.value)} className="w-full bg-slate-800 p-2 rounded-xl text-xs font-bold outline-none text-white">{zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}</select>
-                    <input type="number" step="0.1" value={a.meters} onChange={e => updateAssignment(i, 'meters', parseFloat(e.target.value))} className="w-full bg-slate-800 p-2 rounded-xl text-xs font-bold outline-none text-white" />
+                    <input type="number" step="0.1" value={Number.isNaN(Number(a.meters)) ? '' : a.meters} onChange={e => updateAssignment(i, 'meters', e.target.value === '' ? '' : parseFloat(e.target.value))} className="w-full bg-slate-800 p-2 rounded-xl text-xs font-bold outline-none text-white" />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <select value={a.work_day} onChange={e => updateAssignment(i, 'work_day', e.target.value)} className="w-full bg-slate-800 p-2 rounded-xl text-xs font-bold outline-none text-white">{WORK_DAYS.map(d => <option key={d} value={d}>{d}</option>)}</select>
-                    <input type="number" value={a.calculated_cost} onChange={e => updateAssignment(i, 'calculated_cost', parseFloat(e.target.value))} className="w-full bg-slate-800 p-2 rounded-xl text-xs font-black text-blue-400 outline-none" placeholder="Costo" />
+                    <input type="number" value={Number.isNaN(Number(a.calculated_cost)) ? '' : a.calculated_cost} onChange={e => updateAssignment(i, 'calculated_cost', e.target.value === '' ? '' : parseFloat(e.target.value))} className="w-full bg-slate-800 p-2 rounded-xl text-xs font-black text-blue-400 outline-none" placeholder="Costo" />
                   </div>
                 </div>
               ))}
@@ -230,6 +271,13 @@ export const MerchantForm: React.FC<MerchantFormProps> = ({ onSuccess, onCancel,
                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em]">Cálculo Sincronizado</span>
                   </div>
                </div>
+
+               {errorStatus && (
+                 <div className="bg-rose-500/10 border-2 border-rose-500 p-4 rounded-xl flex items-center gap-3 text-rose-400">
+                   <ShieldAlert size={20} />
+                   <p className="text-xs font-bold uppercase">{errorStatus}</p>
+                 </div>
+               )}
 
                <button type="submit" disabled={loading} className="w-full bg-blue-600 border-4 border-black p-5 rounded-2xl font-black text-lg text-white neobrutalism-shadow flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 transition-all">
                  {loading ? <Loader2 className="animate-spin" /> : <ShieldCheck />} 

@@ -10,7 +10,6 @@ interface MerchantListProps {
   systemLogo?: string | null;
   onRefresh: (silent?: boolean) => void;
   onEdit: (merchant: Merchant) => void;
-  delegatesCanCollect?: boolean;
 }
 
 const PAGE_SIZE = 12;
@@ -70,7 +69,12 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     setLoading(true);
     try {
       const { data, totalCount: count } = await dataService.getMerchantsPaginated(pageNum, PAGE_SIZE, search, user, filter);
-      setMerchants(prev => isNew ? data : [...prev, ...data]);
+      setMerchants(prev => {
+        if (isNew) return data;
+        const existingIds = new Set(prev.map(m => m.id));
+        const newItems = data.filter(m => !existingIds.has(m.id));
+        return [...prev, ...newItems];
+      });
       setTotalCount(count);
       setHasMore(data.length === PAGE_SIZE);
     } catch (error) {
@@ -240,6 +244,9 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
           const hasIne = !!m.ine_photo && m.ine_photo.length > 0;
           let statusColor = balance === 0 ? 'border-blue-600' : balance < totalDebt ? 'border-amber-500' : 'border-rose-600';
 
+          // Lógica de permisos de cobro
+          const canUserCollect = user?.role === 'ADMIN' || user?.role === 'SECRETARY' || (user?.role === 'DELEGATE' && user?.can_collect);
+
           return (
             <div key={m.id} className={`bg-slate-900/40 border-4 ${statusColor} rounded-[2.5rem] p-5 flex flex-col gap-4 relative neobrutalism-shadow transition-all hover:scale-[1.02]`}>
               {m.note && (
@@ -290,7 +297,12 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
                     <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Saldo</span>
                     <p className={`text-xl font-black italic tracking-tighter ${balance === 0 ? 'text-blue-500' : 'text-rose-500'}`}>${balance.toLocaleString()}</p>
                  </div>
-                 <button onClick={(e) => { e.stopPropagation(); balance > 0 ? setSelectedMerchant(m) : null; }} className={`px-4 py-2 rounded-xl border-2 border-black font-black text-[9px] uppercase transition-all ${balance > 0 ? 'bg-white text-black hover:bg-slate-200' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}>Cobrar</button>
+                 <button 
+                  onClick={(e) => { e.stopPropagation(); (balance > 0 && canUserCollect) ? setSelectedMerchant(m) : null; }} 
+                  className={`px-4 py-2 rounded-xl border-2 border-black font-black text-[9px] uppercase transition-all ${balance > 0 && canUserCollect ? 'bg-white text-black hover:bg-slate-200' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}
+                >
+                  {canUserCollect ? 'Cobrar' : 'Bloqueado'}
+                </button>
               </div>
             </div>
           );

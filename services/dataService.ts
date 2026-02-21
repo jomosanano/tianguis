@@ -171,6 +171,24 @@ export const dataService = {
     return data as Abono[];
   },
 
+  getCollectionsReport: async (startDate?: string, endDate?: string) => {
+    let query = supabase
+      .from('abonos')
+      .select(`
+        *,
+        merchants (first_name, last_name_paterno, last_name_materno),
+        profiles:recorded_by (full_name)
+      `)
+      .order('date', { ascending: false });
+
+    if (startDate) query = query.gte('date', startDate);
+    if (endDate) query = query.lte('date', endDate);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data;
+  },
+
   getDashboardStats: async () => {
     const { data, error } = await supabase.rpc('get_dashboard_stats');
     if (error) throw error;
@@ -203,7 +221,14 @@ export const dataService = {
   getStaffProfiles: async () => {
     const { data, error } = await supabase.from('profiles').select('*').order('full_name', { ascending: true });
     if (error) throw error;
-    return data.map(p => ({ id: p.id, name: p.full_name, email: p.email, role: p.role, assigned_zones: p.assigned_zones || [] }));
+    return data.map(p => ({ 
+      id: p.id, 
+      name: p.full_name, 
+      email: p.email, 
+      role: p.role, 
+      assigned_zones: p.assigned_zones || [],
+      can_collect: p.can_collect ?? false
+    }));
   },
 
   updateProfile: async (id: string, updates: any) => {
@@ -261,7 +286,30 @@ export const dataService = {
       email: user.email!,
       name: profile?.full_name || user.email!.split('@')[0],
       role: (profile?.role as Role) || 'DELEGATE',
-      assigned_zones: Array.isArray(profile?.assigned_zones) ? profile.assigned_zones : []
+      assigned_zones: Array.isArray(profile?.assigned_zones) ? profile.assigned_zones : [],
+      can_collect: profile?.can_collect ?? false
     };
+  },
+
+  checkDuplicateMerchant: async (firstName: string, lastNamePaterno: string, lastNameMaterno: string, excludeId?: string) => {
+    let query = supabase
+      .from('merchants')
+      .select('id')
+      .ilike('first_name', firstName)
+      .ilike('last_name_paterno', lastNamePaterno);
+
+    if (lastNameMaterno) {
+      query = query.ilike('last_name_materno', lastNameMaterno);
+    } else {
+      query = query.or('last_name_materno.eq."",last_name_materno.is.null');
+    }
+
+    if (excludeId) {
+      query = query.neq('id', excludeId);
+    }
+
+    const { data, error } = await query.limit(1);
+    if (error) throw error;
+    return data && data.length > 0;
   }
 };

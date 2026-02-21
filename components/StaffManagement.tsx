@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Shield, MapPin, Trash2, Loader2, Save, X, UserCheck, Key, Mail, ShieldCheck, AlertCircle, Edit2, Check, UserCircle } from 'lucide-react';
+import { UserPlus, Shield, MapPin, Trash2, Loader2, Save, X, UserCheck, Key, Mail, ShieldCheck, AlertCircle, Edit2, Check, UserCircle, DollarSign } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { dataService } from '../services/dataService';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../services/supabase';
@@ -68,7 +68,8 @@ export const StaffManagement: React.FC = () => {
         options: {
           data: { 
             full_name: newStaff.name,
-            role: newStaff.role 
+            role: newStaff.role,
+            can_collect: newStaff.role !== 'DELEGATE' // Admins y Secretarias pueden cobrar por defecto
           }
         }
       });
@@ -149,6 +150,15 @@ export const StaffManagement: React.FC = () => {
       fetchData();
     } catch (err) {
       alert("Error al actualizar zonas");
+    }
+  };
+
+  const handleToggleCollect = async (id: string, currentVal: boolean) => {
+    try {
+      await dataService.updateProfile(id, { can_collect: !currentVal });
+      fetchData();
+    } catch (err) {
+      alert("Error al actualizar permiso de cobro");
     }
   };
 
@@ -295,6 +305,28 @@ export const StaffManagement: React.FC = () => {
             </div>
 
             <div className="space-y-4">
+              {member.role === 'DELEGATE' && (
+                <div className="p-4 bg-slate-900 border-2 border-black rounded-2xl flex items-center justify-between group/collect hover:border-emerald-500 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg border border-black ${member.can_collect ? 'bg-emerald-500/20 text-emerald-500' : 'bg-slate-800 text-slate-500'}`}>
+                      <DollarSign className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-white uppercase tracking-tight">Permiso de Cobro</p>
+                      <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">
+                        {member.can_collect ? 'Habilitado para cobrar' : 'Solo lectura de datos'}
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => handleToggleCollect(member.id, member.can_collect)}
+                    className={`w-12 h-6 rounded-full border-2 border-black p-0.5 transition-colors ${member.can_collect ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white border border-black rounded-full transition-transform ${member.can_collect ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="text-[9px] font-black text-slate-400 uppercase block mb-2 tracking-widest">Cambiar Cargo</label>
                 <div className="grid grid-cols-3 gap-2">

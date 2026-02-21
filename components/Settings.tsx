@@ -8,18 +8,15 @@ import { dataService } from '../services/dataService';
 interface SettingsProps {
   onUpdateLogo: (url: string) => void;
   currentLogo?: string | null;
-  onUpdateCollectSetting: (val: boolean) => void;
-  initialCollectSetting: boolean;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ onUpdateLogo, currentLogo, onUpdateCollectSetting, initialCollectSetting }) => {
+export const Settings: React.FC<SettingsProps> = ({ onUpdateLogo, currentLogo }) => {
   const [loading, setLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [newLogo, setNewLogo] = useState<string | null>(null);
-  const [delegatesCanCollect, setDelegatesCanCollect] = useState(initialCollectSetting);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -35,10 +32,8 @@ export const Settings: React.FC<SettingsProps> = ({ onUpdateLogo, currentLogo, o
         }
       }
       await dataService.updateSystemSettings({ 
-        logo_url: finalLogoUrl || null,
-        delegates_can_collect: delegatesCanCollect
+        logo_url: finalLogoUrl || null
       });
-      onUpdateCollectSetting(delegatesCanCollect);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -147,26 +142,8 @@ export const Settings: React.FC<SettingsProps> = ({ onUpdateLogo, currentLogo, o
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* PANEL IZQUIERDO: IDENTIDAD Y PERMISOS */}
+        {/* PANEL IZQUIERDO: IDENTIDAD */}
         <div className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] neobrutalism-shadow-lg flex flex-col gap-8">
-          <div className="space-y-6 pb-6 border-b-2 border-slate-700/50">
-            <h3 className="text-xl font-black uppercase flex items-center gap-3 text-emerald-400"><DollarSign /> Permisos de Operación</h3>
-            <div 
-              onClick={() => setDelegatesCanCollect(!delegatesCanCollect)} 
-              className="cursor-pointer group flex items-center justify-between p-6 bg-slate-900 border-2 border-black rounded-2xl hover:border-blue-500 transition-all"
-            >
-               <div>
-                  <p className="font-black text-sm text-white uppercase tracking-tight">Cobranza en Campo</p>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
-                    {delegatesCanCollect ? 'Los delegados tienen facultad de cobro' : 'Solo administración puede cobrar'}
-                  </p>
-               </div>
-               <div className={`w-14 h-8 rounded-full border-2 border-black p-1 transition-colors ${delegatesCanCollect ? 'bg-emerald-500 shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)]' : 'bg-slate-700'}`}>
-                  <div className={`w-5 h-5 bg-white border-2 border-black rounded-full transition-transform ${delegatesCanCollect ? 'translate-x-6 shadow-md' : 'translate-x-0'}`} />
-               </div>
-            </div>
-          </div>
-
           <div className="space-y-6">
             <h3 className="text-xl font-black uppercase flex items-center gap-3 text-blue-400"><ImageIcon /> Identidad del Sistema</h3>
             <div className="flex flex-col items-center gap-4">
