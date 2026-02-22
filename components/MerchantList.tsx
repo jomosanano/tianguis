@@ -46,7 +46,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
   } | null>(null);
 
   const [historyMerchant, setHistoryMerchant] = useState<Merchant | null>(null);
-  const [merchantAbonos, setMerchantAbonos] = useState<Abono[]>([]);
+  const [merchantAbonos, setMerchantAbonos] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedCredential, setSelectedCredential] = useState<Merchant | null>(null);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -177,8 +177,20 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     setHistoryMerchant(m);
     setHistoryLoading(true);
     try {
-      const { data } = await supabase.from('abonos').select('*').eq('merchant_id', m.id).order('date', { ascending: false });
-      setMerchantAbonos(data || []);
+      const { data } = await supabase
+        .from('abonos')
+        .select('*')
+        .eq('merchant_id', m.id)
+        .eq('archived', false)
+        .order('date', { ascending: true });
+      
+      let runningBalance = Number(m.total_debt);
+      const history = (data || []).map(a => {
+        runningBalance -= Number(a.amount);
+        return { ...a, balanceAfter: runningBalance };
+      });
+      
+      setMerchantAbonos(history.reverse());
     } finally { setHistoryLoading(false); }
   };
 
@@ -451,17 +463,83 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
       {historyMerchant && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[2000] flex items-center justify-center p-4">
           <div className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-2xl text-white h-[80vh] flex flex-col">
-            <div className="flex justify-between items-center mb-8">
-               <h3 className="text-2xl font-black uppercase italic text-blue-500">Historial de <span className="text-white">Pagos</span></h3>
-               <button onClick={() => setHistoryMerchant(null)} className="p-3 bg-slate-700 rounded-2xl"><X /></button>
+            <div className="flex justify-between items-center mb-6">
+               <div>
+                 <h3 className="text-2xl font-black uppercase italic text-blue-500">Estado de <span className="text-white">Cuenta</span></h3>
+                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{historyMerchant.first_name} {historyMerchant.last_name_paterno}</p>
+               </div>
+               <button onClick={() => setHistoryMerchant(null)} className="p-3 bg-slate-700 rounded-2xl hover:bg-rose-600 transition-colors"><X /></button>
             </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4">
-               {historyLoading ? <Loader2 className="animate-spin mx-auto mt-20" /> : merchantAbonos.map(a => (
-                 <div key={a.id} className="flex justify-between items-center p-4 bg-slate-900 border-2 border-black rounded-2xl">
-                    <div><p className="text-[10px] font-black text-slate-500">{new Date(a.date).toLocaleDateString()}</p></div>
-                    <p className="text-xl font-black text-emerald-500">+${Number(a.amount).toLocaleString()}</p>
+
+            {/* Resumen de Deuda */}
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="bg-slate-900 border-2 border-black p-4 rounded-2xl">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-1">Saldo Inicial</span>
+                <p className="text-2xl font-black text-white italic tracking-tighter">${Number(historyMerchant.total_debt).toLocaleString()}</p>
+              </div>
+              <div className="bg-slate-900 border-2 border-black p-4 rounded-2xl">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-1">Saldo Actual</span>
+                <p className={`text-2xl font-black italic tracking-tighter ${Number(historyMerchant.balance) <= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  ${Number(historyMerchant.balance).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+               {historyLoading ? (
+                 <div className="flex flex-col items-center justify-center h-full">
+                   <Loader2 className="animate-spin w-10 h-10 text-blue-500 mb-4" />
+                   <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Cargando movimientos...</p>
                  </div>
-               ))}
+               ) : merchantAbonos.length === 0 ? (
+                 <div className="flex flex-col items-center justify-center h-full opacity-50">
+                   <History size={48} className="mb-4 text-slate-700" />
+                   <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Sin pagos registrados en este ciclo</p>
+                 </div>
+               ) : (
+                 <div className="space-y-4">
+                   {merchantAbonos.map((a, idx) => (
+                     <div key={a.id} className="relative">
+                       {/* Línea de tiempo */}
+                       {idx < merchantAbonos.length - 1 && (
+                         <div className="absolute left-6 top-12 bottom-0 w-0.5 bg-slate-700 -z-10" />
+                       )}
+                       
+                       <div className="flex gap-4 items-start">
+                         <div className="w-12 h-12 rounded-full bg-slate-900 border-2 border-black flex items-center justify-center flex-shrink-0 z-10">
+                           <DollarSign size={20} className="text-emerald-500" />
+                         </div>
+                         <div className="flex-1 bg-slate-900 border-2 border-black p-4 rounded-2xl neobrutalism-shadow-sm">
+                           <div className="flex justify-between items-start mb-2">
+                             <div>
+                               <p className="text-[10px] font-black text-slate-500 uppercase">{new Date(a.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                               <p className="text-[8px] font-bold text-slate-600 uppercase">{new Date(a.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                             </div>
+                             <p className="text-xl font-black text-emerald-500">
+                               +${Number(a.amount).toLocaleString()}
+                             </p>
+                           </div>
+                           <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                             <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Saldo Restante</span>
+                             <span className="text-xs font-black text-blue-400">${Number(a.balanceAfter).toLocaleString()}</span>
+                           </div>
+                         </div>
+                       </div>
+                     </div>
+                   ))}
+                   
+                   {/* Punto de inicio (Saldo Inicial) */}
+                   <div className="flex gap-4 items-start opacity-50">
+                     <div className="w-12 h-12 rounded-full bg-slate-900 border-2 border-dashed border-slate-700 flex items-center justify-center flex-shrink-0">
+                       <div className="w-2 h-2 rounded-full bg-slate-700" />
+                     </div>
+                     <div className="flex-1 p-4">
+                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Apertura de Ciclo</p>
+                       <p className="text-xs font-bold text-slate-600 uppercase">Saldo Inicial: ${Number(historyMerchant.total_debt).toLocaleString()}</p>
+                     </div>
+                   </div>
+                 </div>
+               )}
             </div>
           </div>
         </div>
