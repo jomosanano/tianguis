@@ -18,6 +18,7 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole, onRefresh }) => {
   const [pendingLogistics, setPendingLogistics] = useState<any[]>([]);
+  const [receivedLogistics, setReceivedLogistics] = useState<any[]>([]);
   const [logisticsLoading, setLogisticsLoading] = useState(false);
   const [showAuditModal, setShowAuditModal] = useState(false);
   
@@ -25,13 +26,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole, o
   const isRestricted = userRole === 'SECRETARY' || userRole === 'DELEGATE';
 
   useEffect(() => {
-    if (isAdmin) fetchLogistics();
+    if (isAdmin) {
+      fetchLogistics();
+      fetchReceivedLogistics();
+    }
   }, [isAdmin]);
 
   const fetchLogistics = async () => {
     try {
       const data = await dataService.getMerchantsReadyForAdmin();
       setPendingLogistics(data);
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchReceivedLogistics = async () => {
+    try {
+      const data = await dataService.getReceivedMerchants(5);
+      setReceivedLogistics(data);
     } catch (e) { console.error(e); }
   };
 
@@ -42,6 +53,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole, o
       await dataService.confirmAdminReceipt(pendingLogistics.map(m => m.id));
       setPendingLogistics([]);
       setShowAuditModal(false);
+      fetchReceivedLogistics();
       if (onRefresh) onRefresh();
       alert("¡Lote recibido con éxito!");
     } catch (err) {
@@ -96,6 +108,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, abonos, userRole, o
             <ClipboardCheck className="w-5 h-5" /> 
             REVISAR DESGLOSE DE LOTE
           </button>
+        </div>
+      )}
+
+      {/* HISTORIAL DE ENTREGAS (ADMIN) */}
+      {isAdmin && receivedLogistics.length > 0 && (
+        <div className="bg-slate-800 border-2 border-black p-8 rounded-[2.5rem] neobrutalism-shadow">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="bg-violet-600 p-2 rounded-xl">
+              <CheckCircle className="w-5 h-5 text-white" />
+            </div>
+            <h3 className="text-xl font-black uppercase italic tracking-tighter">Últimas Credenciales <span className="text-violet-500">Recibidas</span></h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {receivedLogistics.map((m) => (
+              <div key={m.id} className="bg-slate-900 border-2 border-black p-4 rounded-2xl flex items-center justify-between group hover:border-violet-500 transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-violet-600/20 rounded-xl flex items-center justify-center font-black text-violet-400 border border-violet-500/30">
+                    {m.first_name[0]}
+                  </div>
+                  <div>
+                    <p className="font-black text-xs uppercase leading-none">{m.first_name} {m.last_name_paterno}</p>
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">
+                      {new Date(m.admin_received_at).toLocaleDateString()} - {new Date(m.admin_received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-emerald-500/10 p-1.5 rounded-lg border border-emerald-500/20">
+                  <CheckCircle className="w-3 h-3 text-emerald-500" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       

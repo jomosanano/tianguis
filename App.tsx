@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, UserPlus, Map, LogOut, Menu, X, ShieldCheck, Loader2, UserCog, Settings as SettingsIcon, QrCode, FileText } from 'lucide-react';
+import { LayoutDashboard, Users, UserPlus, Map, LogOut, Menu, X, ShieldCheck, Loader2, UserCog, Settings as SettingsIcon, QrCode } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { MerchantForm } from './components/MerchantForm';
 import { MerchantList } from './components/MerchantList';
@@ -9,14 +9,13 @@ import { StaffManagement } from './components/StaffManagement';
 import { Settings } from './components/Settings';
 import { Auth } from './components/Auth';
 import { QRScanner } from './components/QRScanner';
-import { CollectionsReport } from './components/CollectionsReport';
 import { dataService } from './services/dataService';
 import { supabase } from './services/supabase';
 import { User, Merchant, Abono } from './types';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'directory' | 'register' | 'zones' | 'staff' | 'settings' | 'scanner' | 'reports'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'directory' | 'register' | 'zones' | 'staff' | 'settings' | 'scanner'>('dashboard');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -24,6 +23,7 @@ const App: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [recentAbonos, setRecentAbonos] = useState<Abono[]>([]);
   const [systemLogo, setSystemLogo] = useState<string | null>(null);
+  const [delegatesCanCollect, setDelegatesCanCollect] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Estado logística
@@ -61,6 +61,7 @@ const App: React.FC = () => {
       setDashboardStats(stats);
       setRecentAbonos(abonos);
       setSystemLogo(settings.logo_url);
+      setDelegatesCanCollect(settings.delegates_can_collect ?? false);
 
       if (user?.role === 'ADMIN') {
         const logistics = await dataService.getMerchantsReadyForAdmin();
@@ -178,10 +179,6 @@ const App: React.FC = () => {
           )}
 
           {currentUser?.role === 'ADMIN' && (
-            <NavItem id="reports" icon={FileText} label="Reportes" />
-          )}
-
-          {currentUser?.role === 'ADMIN' && (
             <NavItem id="register" icon={UserPlus} label={editingMerchant ? "Editando" : "Registrar"} />
           )}
           
@@ -230,6 +227,7 @@ const App: React.FC = () => {
                   systemLogo={systemLogo} 
                   onRefresh={(silent) => fetchEssentialData(silent === true)} 
                   onEdit={handleEditMerchant}
+                  delegatesCanCollect={delegatesCanCollect}
                 />
               )}
               {activeTab === 'scanner' && <QRScanner />}
@@ -242,11 +240,12 @@ const App: React.FC = () => {
               )}
               {activeTab === 'zones' && <ZoneManagement />}
               {activeTab === 'staff' && <StaffManagement />}
-              {activeTab === 'reports' && <CollectionsReport />}
               {activeTab === 'settings' && (
                 <Settings 
                   currentLogo={systemLogo} 
                   onUpdateLogo={(url) => setSystemLogo(url)} 
+                  onUpdateCollectSetting={(val) => setDelegatesCanCollect(val)}
+                  initialCollectSetting={delegatesCanCollect}
                 />
               )}
             </div>

@@ -26,18 +26,20 @@ export const dataService = {
     
     let query = supabase.from('merchants').select(selectString, { count: 'exact' });
     
-    if (filter === 'NO_PAYMENTS') {
-      query = query.eq('status', 'PENDING');
-    } else if (filter === 'IN_PROGRESS') {
-      query = query.eq('status', 'PARTIAL');
-    } else if (filter === 'LIQUIDATED') {
-      query = query.eq('status', 'PAID');
-    } else if (filter === 'NO_INE') {
-      query = query.or('ine_photo_url.is.null,ine_photo_url.eq.""');
-    }
-
-    if (user.role === 'SECRETARY' && filter === 'ALL') {
+    if (user.role === 'SECRETARY') {
        query = query.eq('status', 'PAID');
+    } else {
+      if (filter === 'NO_PAYMENTS') {
+        query = query.eq('status', 'PENDING');
+      } else if (filter === 'IN_PROGRESS') {
+        query = query.eq('status', 'PARTIAL');
+      } else if (filter === 'LIQUIDATED') {
+        query = query.eq('status', 'PAID');
+      } else if (filter === 'NO_INE') {
+        query = query.or('ine_photo_url.is.null,ine_photo_url.eq.""');
+      } else if (filter === 'WITH_NOTE') {
+        query = query.not('note', 'is', null).neq('note', '');
+      }
     }
     
     if (user.role === 'DELEGATE') {
@@ -57,10 +59,10 @@ export const dataService = {
 
     const formattedData = (data || []).map(m => ({ 
       ...m, 
-      profile_photo: m.profile_photo_url, 
-      ine_photo: m.ine_photo_url, 
+      profile_photo: m.profile_photo_url || m.profile_photo, 
+      ine_photo: m.ine_photo_url || m.ine_photo, 
       assignments: m.zone_assignments || [],
-      full_name: `${m.first_name} ${m.last_name_paterno} ${m.last_name_materno}`.trim()
+      full_name: `${m.first_name || ''} ${m.last_name_paterno || ''} ${m.last_name_materno || ''}`.trim()
     })) as unknown as Merchant[];
 
     return { data: formattedData, totalCount: count || 0 };
@@ -95,7 +97,18 @@ export const dataService = {
       .eq('ready_for_admin', true)
       .eq('admin_received', false);
     if (error) throw error;
-    return data;
+    return data || [];
+  },
+
+  getReceivedMerchants: async (limit: number = 5) => {
+    const { data, error } = await supabase
+      .from('merchants')
+      .select('id, first_name, last_name_paterno, last_name_materno, giro, admin_received_at')
+      .eq('admin_received', true)
+      .order('admin_received_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
   },
 
   markAsReadyForAdmin: async (ids: string[]) => {
@@ -132,9 +145,9 @@ export const dataService = {
       .select('*, zone_assignments(*, zones(name))')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data.map(m => ({
+    return (data || []).map(m => ({
       ...m,
-      full_name: `${m.first_name} ${m.last_name_paterno} ${m.last_name_materno}`.trim()
+      full_name: `${m.first_name || ''} ${m.last_name_paterno || ''} ${m.last_name_materno || ''}`.trim()
     }));
   },
 
@@ -165,28 +178,20 @@ export const dataService = {
     return data as Abono[];
   },
 
+  getAbonosByStaff: async (staffId: string) => {
+    const { data, error } = await supabase
+      .from('abonos')
+      .select('*, merchants(first_name, last_name_paterno, last_name_materno)')
+      .eq('recorded_by', staffId)
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
   getAbonos: async (limit: number = 5) => {
     const { data, error } = await supabase.from('abonos').select('*').order('date', { ascending: false }).limit(limit);
     if (error) throw error;
     return data as Abono[];
-  },
-
-  getCollectionsReport: async (startDate?: string, endDate?: string) => {
-    let query = supabase
-      .from('abonos')
-      .select(`
-        *,
-        merchants (first_name, last_name_paterno, last_name_materno),
-        profiles:recorded_by (full_name)
-      `)
-      .order('date', { ascending: false });
-
-    if (startDate) query = query.gte('date', startDate);
-    if (endDate) query = query.lte('date', endDate);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data;
   },
 
   getDashboardStats: async () => {
@@ -221,7 +226,7 @@ export const dataService = {
   getStaffProfiles: async () => {
     const { data, error } = await supabase.from('profiles').select('*').order('full_name', { ascending: true });
     if (error) throw error;
-    return data.map(p => ({ 
+    return (data || []).map(p => ({ 
       id: p.id, 
       name: p.full_name, 
       email: p.email, 
@@ -289,27 +294,5 @@ export const dataService = {
       assigned_zones: Array.isArray(profile?.assigned_zones) ? profile.assigned_zones : [],
       can_collect: profile?.can_collect ?? false
     };
-  },
-
-  checkDuplicateMerchant: async (firstName: string, lastNamePaterno: string, lastNameMaterno: string, excludeId?: string) => {
-    let query = supabase
-      .from('merchants')
-      .select('id')
-      .ilike('first_name', firstName)
-      .ilike('last_name_paterno', lastNamePaterno);
-
-    if (lastNameMaterno) {
-      query = query.ilike('last_name_materno', lastNameMaterno);
-    } else {
-      query = query.or('last_name_materno.eq."",last_name_materno.is.null');
-    }
-
-    if (excludeId) {
-      query = query.neq('id', excludeId);
-    }
-
-    const { data, error } = await query.limit(1);
-    if (error) throw error;
-    return data && data.length > 0;
   }
 };

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Shield, MapPin, Trash2, Loader2, Save, X, UserCheck, Key, Mail, ShieldCheck, AlertCircle, Edit2, Check, UserCircle, DollarSign } from 'lucide-react';
+import { UserPlus, Shield, MapPin, Trash2, Loader2, Save, X, UserCheck, Key, Mail, ShieldCheck, AlertCircle, Edit2, Check, UserCircle, DollarSign, History, Download, FileText, Calendar } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { dataService } from '../services/dataService';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../services/supabase';
@@ -19,6 +19,10 @@ export const StaffManagement: React.FC = () => {
 
   const [newStaff, setNewStaff] = useState({ email: '', password: '', name: '', role: 'DELEGATE' as Role });
   const [createLoading, setCreateLoading] = useState(false);
+
+  const [historyStaff, setHistoryStaff] = useState<any | null>(null);
+  const [historyAbonos, setHistoryAbonos] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -68,8 +72,7 @@ export const StaffManagement: React.FC = () => {
         options: {
           data: { 
             full_name: newStaff.name,
-            role: newStaff.role,
-            can_collect: newStaff.role !== 'DELEGATE' // Admins y Secretarias pueden cobrar por defecto
+            role: newStaff.role 
           }
         }
       });
@@ -153,13 +156,53 @@ export const StaffManagement: React.FC = () => {
     }
   };
 
-  const handleToggleCollect = async (id: string, currentVal: boolean) => {
+  const handleToggleCollect = async (id: string, currentStatus: boolean) => {
     try {
-      await dataService.updateProfile(id, { can_collect: !currentVal });
+      await dataService.updateProfile(id, { can_collect: !currentStatus });
       fetchData();
     } catch (err) {
       alert("Error al actualizar permiso de cobro");
     }
+  };
+
+  const openStaffHistory = async (member: any) => {
+    setHistoryStaff(member);
+    setHistoryLoading(true);
+    try {
+      const data = await dataService.getAbonosByStaff(member.id);
+      setHistoryAbonos(data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const exportStaffHistory = () => {
+    if (!historyStaff || historyAbonos.length === 0) return;
+    
+    const headers = ["Fecha", "Comerciante", "Monto", "ID Abono"];
+    const rows = historyAbonos.map(a => [
+      new Date(a.date).toLocaleString(),
+      `${a.merchants?.first_name || ''} ${a.merchants?.last_name_paterno || ''}`.trim(),
+      `$${a.amount}`,
+      a.id
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(r => r.join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Reporte_Cobros_${historyStaff.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   if (loading && !deleteConfirmId) return <div className="flex justify-center py-20"><Loader2 className="animate-spin w-10 h-10 text-blue-500" /></div>;
@@ -305,27 +348,32 @@ export const StaffManagement: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-              {member.role === 'DELEGATE' && (
-                <div className="p-4 bg-slate-900 border-2 border-black rounded-2xl flex items-center justify-between group/collect hover:border-emerald-500 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg border border-black ${member.can_collect ? 'bg-emerald-500/20 text-emerald-500' : 'bg-slate-800 text-slate-500'}`}>
-                      <DollarSign className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black text-white uppercase tracking-tight">Permiso de Cobro</p>
-                      <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">
-                        {member.can_collect ? 'Habilitado para cobrar' : 'Solo lectura de datos'}
-                      </p>
-                    </div>
-                  </div>
-                  <button 
+              <div>
+                <label className="text-[9px] font-black text-slate-400 uppercase block mb-2 tracking-widest">Permisos Especiales</label>
+                <div className="flex gap-2">
+                  <button
                     onClick={() => handleToggleCollect(member.id, member.can_collect)}
-                    className={`w-12 h-6 rounded-full border-2 border-black p-0.5 transition-colors ${member.can_collect ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                    className={`flex-1 py-3 px-4 rounded-xl border-2 border-black font-black text-[10px] uppercase transition-all flex items-center justify-between ${
+                      member.can_collect ? 'bg-emerald-500 text-white neobrutalism-shadow' : 'bg-slate-900 text-slate-500 hover:text-slate-400'
+                    }`}
                   >
-                    <div className={`w-4 h-4 bg-white border border-black rounded-full transition-transform ${member.can_collect ? 'translate-x-6' : 'translate-x-0'}`} />
+                    <div className="flex items-center gap-2">
+                      <DollarSign className={`w-4 h-4 ${member.can_collect ? 'text-white' : 'text-slate-600'}`} />
+                      <span>Permitir Cobros</span>
+                    </div>
+                    <div className={`w-10 h-5 rounded-full border-2 border-black relative transition-colors ${member.can_collect ? 'bg-white' : 'bg-slate-800'}`}>
+                      <div className={`absolute top-0.5 w-3 h-3 rounded-full border border-black transition-all ${member.can_collect ? 'right-0.5 bg-emerald-500' : 'left-0.5 bg-slate-600'}`} />
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => openStaffHistory(member)}
+                    className="px-4 py-3 bg-slate-700 border-2 border-black rounded-xl text-white hover:bg-blue-600 transition-all active:scale-95 neobrutalism-shadow"
+                    title="Ver Historial de Cobros"
+                  >
+                    <History className="w-5 h-5" />
                   </button>
                 </div>
-              )}
+              </div>
 
               <div>
                 <label className="text-[9px] font-black text-slate-400 uppercase block mb-2 tracking-widest">Cambiar Cargo</label>
@@ -382,6 +430,89 @@ export const StaffManagement: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <button onClick={() => setDeleteConfirmId(null)} className="bg-slate-700 border-2 border-black p-4 rounded-2xl font-black active:scale-95">CANCELAR</button>
               <button onClick={handleDeleteStaff} className="bg-rose-600 border-2 border-black p-4 rounded-2xl font-black text-white active:scale-95">ELIMINAR</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE HISTORIAL DE COBROS DEL PERSONAL */}
+      {historyStaff && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[300] flex items-center justify-center p-4">
+          <div className="bg-slate-800 border-4 border-black p-8 rounded-[3rem] w-full max-w-2xl text-white h-[80vh] flex flex-col neobrutalism-shadow-lg animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-8">
+               <div className="flex items-center gap-4">
+                  <div className="bg-blue-600 w-12 h-12 rounded-xl border-2 border-black flex items-center justify-center shadow-lg">
+                    <History className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black uppercase italic tracking-tighter leading-none">Historial de Cobros</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{historyStaff.name}</p>
+                  </div>
+               </div>
+               <div className="flex gap-2">
+                 {historyAbonos.length > 0 && (
+                   <button 
+                     onClick={exportStaffHistory}
+                     className="p-3 bg-emerald-600 border-2 border-black rounded-xl hover:bg-emerald-500 transition-all neobrutalism-shadow active:scale-90"
+                     title="Exportar a CSV"
+                   >
+                     <Download size={20} />
+                   </button>
+                 )}
+                 <button onClick={() => setHistoryStaff(null)} className="p-3 bg-slate-700 border-2 border-black rounded-xl hover:bg-rose-600 transition-all"><X /></button>
+               </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+              <div className="bg-slate-900 border-2 border-black p-5 rounded-2xl neobrutalism-shadow">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Recaudado</p>
+                <p className="text-3xl font-black text-emerald-500 italic tracking-tighter">
+                  ${historyAbonos.reduce((acc, curr) => acc + Number(curr.amount), 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="bg-slate-900 border-2 border-black p-5 rounded-2xl neobrutalism-shadow">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Operaciones</p>
+                <p className="text-3xl font-black text-blue-400 italic tracking-tighter">{historyAbonos.length}</p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2">
+               {historyLoading ? (
+                 <div className="flex flex-col items-center justify-center py-20">
+                   <Loader2 className="animate-spin text-blue-500 w-10 h-10 mb-4" />
+                   <p className="text-xs font-black text-slate-500 uppercase animate-pulse">Cargando registros...</p>
+                 </div>
+               ) : historyAbonos.length === 0 ? (
+                 <div className="text-center py-20 bg-slate-900/50 border-2 border-dashed border-slate-700 rounded-3xl">
+                   <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                   <p className="text-sm font-black text-slate-500 uppercase">No hay cobros registrados por este colaborador</p>
+                 </div>
+               ) : (
+                 historyAbonos.map(a => (
+                   <div key={a.id} className="flex justify-between items-center p-5 bg-slate-900 border-2 border-black rounded-2xl hover:border-blue-500 transition-all group">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 group-hover:bg-emerald-500 group-hover:text-black transition-all">
+                          <DollarSign size={18} />
+                        </div>
+                        <div>
+                          <p className="font-black text-sm uppercase leading-none mb-1">
+                            {a.merchants?.first_name} {a.merchants?.last_name_paterno}
+                          </p>
+                          <div className="flex items-center gap-2 text-slate-500">
+                             <Calendar size={10} />
+                             <p className="text-[10px] font-bold uppercase tracking-wider">
+                               {new Date(a.date).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                             </p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xl font-black text-emerald-500 leading-none mb-1">+${Number(a.amount).toLocaleString()}</p>
+                        <p className="text-[8px] font-black text-slate-600 uppercase">ID: {a.id.slice(0, 8)}</p>
+                      </div>
+                   </div>
+                 ))
+               )}
             </div>
           </div>
         </div>
