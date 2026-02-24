@@ -14,7 +14,7 @@ interface MerchantListProps {
 }
 
 const PAGE_SIZE = 12;
-type FilterType = 'ALL' | 'NO_PAYMENTS' | 'IN_PROGRESS' | 'LIQUIDATED' | 'NO_INE' | 'WITH_NOTE';
+type FilterType = 'ALL' | 'NO_PAYMENTS' | 'IN_PROGRESS' | 'LIQUIDATED' | 'NO_INE' | 'WITH_NOTE' | 'DELIVERED';
 
 const FILTER_LABELS: Record<FilterType, string> = {
   ALL: 'TODOS',
@@ -22,7 +22,8 @@ const FILTER_LABELS: Record<FilterType, string> = {
   IN_PROGRESS: 'EN PROCESO',
   LIQUIDATED: 'LIQUIDADOS',
   NO_INE: 'SIN INE',
-  WITH_NOTE: 'CON NOTA'
+  WITH_NOTE: 'CON NOTA',
+  DELIVERED: 'ENTREGADAS'
 };
 
 export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onEdit, systemLogo, delegatesCanCollect }) => {
@@ -166,11 +167,13 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
     setAbonoLoading(true);
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) throw new Error("Sesión no válida. Por favor, vuelve a iniciar sesión.");
+      
       const now = new Date();
       const { error } = await supabase.from('abonos').insert({ 
         merchant_id: selectedMerchant.id, 
         amount, 
-        recorded_by: authUser?.id,
+        recorded_by: authUser.id,
         date: now.toISOString()
       });
       if (error) throw error;
@@ -240,19 +243,17 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
           </div>
         </div>
         <div className="flex flex-col md:flex-row w-full xl:w-auto gap-4 items-center">
-          {!isSecretary && (
-            <div className="bg-slate-900 border-2 border-black rounded-2xl p-1 flex overflow-x-auto custom-scrollbar">
-              {(['ALL', 'NO_PAYMENTS', 'IN_PROGRESS', 'LIQUIDATED', 'NO_INE', 'WITH_NOTE'] as FilterType[]).map(f => (
-                <button 
-                  key={f} 
-                  onClick={() => setActiveFilter(f)} 
-                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeFilter === f ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white'}`}
-                >
-                  {FILTER_LABELS[f]}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="bg-slate-900 border-2 border-black rounded-2xl p-1 flex overflow-x-auto custom-scrollbar">
+            {(!isSecretary ? (['ALL', 'NO_PAYMENTS', 'IN_PROGRESS', 'LIQUIDATED', 'NO_INE', 'WITH_NOTE', 'DELIVERED'] as FilterType[]) : (['ALL', 'DELIVERED'] as FilterType[])).map(f => (
+              <button 
+                key={f} 
+                onClick={() => setActiveFilter(f)} 
+                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeFilter === f ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white'}`}
+              >
+                {FILTER_LABELS[f]}
+              </button>
+            ))}
+          </div>
           <div className="flex w-full md:w-auto gap-3 items-center">
             <div className="relative flex-1 md:w-72">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />

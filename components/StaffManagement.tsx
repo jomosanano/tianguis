@@ -168,14 +168,27 @@ export const StaffManagement: React.FC = () => {
   const openStaffHistory = async (member: any) => {
     setHistoryStaff(member);
     setHistoryLoading(true);
+    setHistoryAbonos([]);
     try {
       const data = await dataService.getAbonosByStaff(member.id);
       setHistoryAbonos(data || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert("Error al cargar historial: " + err.message);
     } finally {
       setHistoryLoading(false);
     }
+  };
+
+  const getMerchantName = (a: any) => {
+    const m = a.merchants || a.merchant;
+    if (!m) return 'ID: ' + (a.merchant_id?.slice(0, 8) || '---');
+    if (Array.isArray(m)) {
+      const first = m[0];
+      if (!first) return 'ID: ' + (a.merchant_id?.slice(0, 8) || '---');
+      return `${first.first_name || ''} ${first.last_name_paterno || ''}`.trim();
+    }
+    return `${m.first_name || ''} ${m.last_name_paterno || ''}`.trim();
   };
 
   const exportStaffHistory = () => {
@@ -184,7 +197,7 @@ export const StaffManagement: React.FC = () => {
     const headers = ["Fecha", "Comerciante", "Monto", "ID Abono"];
     const rows = historyAbonos.map(a => [
       new Date(a.date).toLocaleString(),
-      `${a.merchants?.first_name || ''} ${a.merchants?.last_name_paterno || ''}`.trim(),
+      getMerchantName(a),
       `$${a.amount}`,
       a.id
     ]);
@@ -496,7 +509,7 @@ export const StaffManagement: React.FC = () => {
                         </div>
                         <div>
                           <p className="font-black text-sm uppercase leading-none mb-1">
-                            {a.merchants?.first_name} {a.merchants?.last_name_paterno}
+                            {getMerchantName(a)}
                           </p>
                           <div className="flex items-center gap-2 text-slate-500">
                              <Calendar size={10} />

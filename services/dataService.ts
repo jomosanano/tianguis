@@ -26,7 +26,7 @@ export const dataService = {
     
     let query = supabase.from('merchants').select(selectString, { count: 'exact' });
     
-    if (user.role === 'SECRETARY') {
+    if (user.role === 'SECRETARY' && filter !== 'DELIVERED') {
        query = query.eq('status', 'PAID');
     } else {
       if (filter === 'NO_PAYMENTS') {
@@ -39,6 +39,8 @@ export const dataService = {
         query = query.or('ine_photo_url.is.null,ine_photo_url.eq.""');
       } else if (filter === 'WITH_NOTE') {
         query = query.not('note', 'is', null).neq('note', '');
+      } else if (filter === 'DELIVERED') {
+        query = query.eq('admin_received', true);
       }
     }
     
@@ -179,13 +181,38 @@ export const dataService = {
   },
 
   getAbonosByStaff: async (staffId: string) => {
-    const { data, error } = await supabase
+    // 1. Intentar obtener abonos filtrando por recorded_by (UUID del perfil/auth)
+    let { data: abonos, error } = await supabase
       .from('abonos')
-      .select('*, merchants(first_name, last_name_paterno, last_name_materno)')
+      .select('*')
       .eq('recorded_by', staffId)
       .order('date', { ascending: false });
-    if (error) throw error;
-    return data;
+    
+    // Fallback: Si no hay datos, intentar por user_id por si el esquema es diferente
+    if (!abonos || abonos.length === 0) {
+      const { data: fallbackData } = await supabase
+        .from('abonos')
+        .select('*')
+        .eq('user_id', staffId)
+        .order('date', { ascending: false });
+      if (fallbackData && fallbackData.length > 0) abonos = fallbackData;
+    }
+
+    if (error && (!abonos || abonos.length === 0)) throw error;
+    if (!abonos || abonos.length === 0) return [];
+
+    // 2. Obtener detalles de comerciantes por separado para evitar errores de join complejos
+    const merchantIds = [...new Set(abonos.map(a => a.merchant_id))];
+    const { data: merchants } = await supabase
+      .from('merchants')
+      .select('id, first_name, last_name_paterno, last_name_materno')
+      .in('id', merchantIds);
+    
+    // 3. Mapear los datos
+    return abonos.map(abono => ({
+      ...abono,
+      merchants: merchants?.find(m => m.id === abono.merchant_id) || null
+    }));
   },
 
   getAbonos: async (limit: number = 5) => {
