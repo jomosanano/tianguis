@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Loader2, Edit2, Trash2, X, History, IdCard, Filter, DollarSign, MapPin, Briefcase, RotateCw, ShieldCheck, ShieldAlert, QrCode, AlertTriangle, PackageOpen, CheckCircle2, MessageCircle, Ruler, Calendar, Info, Check, StickyNote, Users } from 'lucide-react';
+import { Search, Loader2, Edit2, Trash2, X, History, IdCard, Filter, DollarSign, MapPin, Briefcase, RotateCw, ShieldCheck, ShieldAlert, QrCode, AlertTriangle, PackageOpen, CheckCircle2, MessageCircle, Ruler, Calendar, Info, Check, StickyNote, Users, ChevronDown } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { dataService } from '../services/dataService';
 import { Merchant, Abono, User as UserType, Zone } from '../types';
@@ -35,6 +35,7 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
   const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [totalCount, setTotalCount] = useState(0);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   
   const [flippedIneIds, setFlippedIneIds] = useState<Set<string>>(new Set());
   const [selectedMerchant, setSelectedMerchant] = useState<Merchant | null>(null);
@@ -243,7 +244,8 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
           </div>
         </div>
         <div className="flex flex-col md:flex-row w-full xl:w-auto gap-4 items-center">
-          <div className="bg-slate-900 border-2 border-black rounded-2xl p-1 flex overflow-x-auto custom-scrollbar">
+          {/* Desktop Filters */}
+          <div className="hidden md:flex bg-slate-900 border-2 border-black rounded-2xl p-1 overflow-x-auto custom-scrollbar">
             {(!isSecretary ? (['ALL', 'NO_PAYMENTS', 'IN_PROGRESS', 'LIQUIDATED', 'NO_INE', 'WITH_NOTE', 'DELIVERED'] as FilterType[]) : (['ALL', 'DELIVERED'] as FilterType[])).map(f => (
               <button 
                 key={f} 
@@ -253,6 +255,37 @@ export const MerchantList: React.FC<MerchantListProps> = ({ user, onRefresh, onE
                 {FILTER_LABELS[f]}
               </button>
             ))}
+          </div>
+
+          {/* Mobile Dropdown */}
+          <div className="md:hidden w-full relative">
+            <button 
+              onClick={() => setIsFilterOpen(!isFilterOpen)}
+              className="w-full bg-slate-900 border-2 border-black p-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-between neobrutalism-shadow"
+            >
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-blue-500" />
+                <span>Filtro: <span className="text-blue-400">{FILTER_LABELS[activeFilter]}</span></span>
+              </div>
+              <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isFilterOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isFilterOpen && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border-2 border-black rounded-2xl p-2 z-[100] neobrutalism-shadow-lg animate-in fade-in zoom-in-95 duration-200">
+                {(!isSecretary ? (['ALL', 'NO_PAYMENTS', 'IN_PROGRESS', 'LIQUIDATED', 'NO_INE', 'WITH_NOTE', 'DELIVERED'] as FilterType[]) : (['ALL', 'DELIVERED'] as FilterType[])).map(f => (
+                  <button 
+                    key={f} 
+                    onClick={() => {
+                      setActiveFilter(f);
+                      setIsFilterOpen(false);
+                    }} 
+                    className={`w-full text-left px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all mb-1 last:mb-0 ${activeFilter === f ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    {FILTER_LABELS[f]}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex w-full md:w-auto gap-3 items-center">
             <div className="relative flex-1 md:w-72">

@@ -59,7 +59,7 @@ export const dataService = {
     const { data, error, count } = await query.order('created_at', { ascending: false }).range(from, to);
     if (error) throw error;
 
-    const formattedData = (data || []).map(m => ({ 
+    const formattedData = (data as any[] || []).map(m => ({ 
       ...m, 
       profile_photo: m.profile_photo_url || m.profile_photo, 
       ine_photo: m.ine_photo_url || m.ine_photo, 
@@ -165,12 +165,13 @@ export const dataService = {
     const { data, error } = await query.single();
     if (error) throw new Error("Acceso denegado o no encontrado.");
     
+    const m = data as any;
     return { 
-      ...data, 
-      profile_photo: data.profile_photo_url, 
-      ine_photo: data.ine_photo_url, 
-      assignments: data.zone_assignments || [],
-      full_name: `${data.first_name} ${data.last_name_paterno} ${data.last_name_materno}`.trim()
+      ...m, 
+      profile_photo: m.profile_photo_url, 
+      ine_photo: m.ine_photo_url, 
+      assignments: m.zone_assignments || [],
+      full_name: `${m.first_name} ${m.last_name_paterno} ${m.last_name_materno}`.trim()
     } as unknown as Merchant;
   },
 
